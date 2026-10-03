@@ -1,0 +1,7 @@
+# Le dice a Netlify en que subcarpeta vive el sitio que se va a construir,
+# ya que el repo tiene varias carpetas (backend/, p26-back/, frontend-astro/, etc.)
+
+[build]
+  base = "frontend-astro"
+  command = "npm run build"
+  publish = "dist"
