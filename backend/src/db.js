@@ -7,8 +7,18 @@ const { Pool } = pg;
 // P2-6: aqui las consultas son asincronas (async/await) en vez de sincronas,
 // y en lugar de "prepared statements" reutilizables se usan queries
 // parametrizadas ($1, $2, ...) que el driver pg prepara internamente.
+//
+// SSL: Render (y la mayoria de los Postgres administrados en la nube) exige
+// TLS en la conexion externa, con un certificado autofirmado por su CA
+// interna. "rejectUnauthorized: false" acepta ese certificado sin validarlo
+// contra una CA publica (igual que hace psql con sslmode=require). En un
+// Postgres local de desarrollo (DATABASE_URL apuntando a localhost) no hace
+// falta SSL, asi que solo se activa si la URL no es local.
+const esLocal = /localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL || '');
+
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: esLocal ? false : { rejectUnauthorized: false },
 });
 
 pool.on('error', (err) => {
