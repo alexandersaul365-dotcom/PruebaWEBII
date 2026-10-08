@@ -10,8 +10,8 @@ if (!SECRET) {
 /**
  * Un mismo token JWT autoriza DOS sistemas distintos:
  *
- *  - Este backend GraphQL: lee el claim "rol" (ADMIN | CLIENTE) para
- *    decidir que puede hacer el usuario en los resolvers.
+ *  - Este backend GraphQL: lee el claim "rol" (ADMIN | OPERADOR | CLIENTE)
+ *    para decidir que puede hacer el usuario en los resolvers.
  *  - PostgREST: lee el claim estandar "role", y antes de correr cada
  *    query hace "SET ROLE <valor>", cambiando a ese rol de Postgres
  *    (ver postgrest.conf y las policies de RLS en db/init.sql).
@@ -20,7 +20,9 @@ if (!SECRET) {
  * con vocabularios distintos (negocio vs. roles de base de datos).
  */
 export function firmarToken(usuario) {
-  const rolDb = usuario.rol === 'ADMIN' ? 'web_admin' : 'web_user';
+  // El equipo del panel (ADMIN y OPERADOR) mapea al rol de BD "web_admin",
+  // que tiene CRUD completo y visibilidad total; los clientes a "web_user".
+  const rolDb = usuario.rol === 'CLIENTE' ? 'web_user' : 'web_admin';
 
   const payload = {
     sub: String(usuario.id), // PostgREST usa "sub" en las policies de RLS

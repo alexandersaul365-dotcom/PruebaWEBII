@@ -10,6 +10,7 @@ const { title = 'NexoPlay' } = Astro.props;
 // con la sesion correcta desde el primer HTML, sin esperar a que hidraten las
 // islas. Solo viajan datos publicos del usuario, nunca el token.
 const usuarioInicial = Astro.locals.sesion?.usuario ?? null;
+const esPanel = usuarioInicial && ['ADMIN', 'OPERADOR'].includes(usuarioInicial.rol);
 ---
 <!doctype html>
 <html lang="es">
@@ -24,6 +25,10 @@ const usuarioInicial = Astro.locals.sesion?.usuario ?? null;
         <a href="/" class="topbar__logo">Nexo<span>Play</span></a>
         <nav class="topbar__nav">
           <a href="/">Inicio</a>
+          {usuarioInicial && <a href="/mis-ordenes">Mis Órdenes</a>}
+          {esPanel && <a href="/admin">Panel Admin</a>}
+          {!usuarioInicial && <a href="/login">Iniciar sesión</a>}
+          {!usuarioInicial && <a href="/registro">Registrarse</a>}
         </nav>
         <div class="topbar__acciones">
           <!-- Islas de React: cada una hidrata por separado. La sesion ya no
@@ -71,6 +76,11 @@ const usuarioInicial = Astro.locals.sesion?.usuario ?? null;
       }
       .topbar__logo span {
         color: var(--violeta);
+      }
+      .topbar__nav {
+        display: flex;
+        align-items: center;
+        gap: 16px;
       }
       .topbar__nav a {
         text-decoration: none;

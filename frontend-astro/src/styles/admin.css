@@ -1,0 +1,189 @@
+/* Estilos del panel de administracion (AdminLayout.astro). */
+:root {
+  --admin-sidebar: 248px;
+}
+
+.admin {
+  display: flex;
+  min-height: 100vh;
+}
+
+.admin__sidebar {
+  width: var(--admin-sidebar);
+  flex-shrink: 0;
+  background: var(--surface-muted);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 16px;
+  gap: 20px;
+}
+
+.admin__marca {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.admin__marca small {
+  color: var(--texto-secundario);
+  font-size: 12px;
+  font-family: sans-serif;
+}
+
+.admin__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin__enlace {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  color: var(--texto-secundario);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.admin__enlace:hover {
+  background: var(--surface);
+}
+
+.admin__enlace--activo {
+  background: var(--surface);
+  color: var(--texto);
+  box-shadow: inset 3px 0 0 var(--violeta);
+}
+
+.admin__usuario {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.admin__usuario .admin__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--violeta), var(--celeste));
+  color: #fff;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.admin__usuario .admin__datos {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+
+.admin__usuario .admin__datos small {
+  color: var(--texto-secundario);
+}
+
+.admin__contenido {
+  flex: 1;
+  padding: 28px 32px;
+  min-width: 0;
+}
+
+.admin__cabecera h1 {
+  font-family: var(--font-display);
+  font-size: 24px;
+  margin: 0;
+}
+
+/* Tarjetas del dashboard -------------------------------------------------- */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.kpis article {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+}
+
+.kpis article span {
+  color: var(--texto-secundario);
+  font-size: 13px;
+}
+
+.kpis article strong {
+  display: block;
+  font-size: 24px;
+  margin-top: 6px;
+}
+
+/* Tablas y listas del panel ------------------------------------------------ */
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.tabla th,
+.tabla td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabla th {
+  background: var(--surface-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--texto-secundario);
+}
+
+.tabla tr:last-child td {
+  border-bottom: none;
+}
+
+/* Insignias de estado ------------------------------------------------------- */
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge--APROBADO, .badge--DELIVERED { background: #dcfce7; color: #166534; }
+.badge--PENDIENTE, .badge--PENDING { background: #fef9c3; color: #854d0e; }
+.badge--RECHAZADO, .badge--CANCELLED, .badge--CANCELADO { background: #fee2e2; color: #991b1b; }
+.badge--REEMBOLSADO, .badge--FAILED, .badge--SHIPPED { background: #e0f2fe; color: #075985; }
+
+.panel-error {
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 14px;
+  margin: 20px 0;
+}
+
+.panel-cargando {
+  color: var(--texto-secundario);
+  padding: 40px 0;
+  text-align: center;
+}

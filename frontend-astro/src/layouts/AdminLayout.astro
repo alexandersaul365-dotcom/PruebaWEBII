@@ -1,0 +1,59 @@
+---
+// Layout del panel de administracion (/admin/*). Ya lo protege el
+// middleware: aqui ya sabemos que Astro.locals.sesion.usuario existe y con
+// rol ADMIN u OPERADOR.
+import '../styles/admin.css';
+import CerrarSesion from '../components/CerrarSesion.jsx';
+
+const { title = 'Panel de administración' } = Astro.props;
+const usuario = Astro.locals.sesion.usuario;
+const ruta = Astro.url.pathname;
+
+const articulos = [
+  { href: '/admin', etiqueta: 'Dashboard' },
+  { href: '/admin/productos', etiqueta: 'Productos' },
+  { href: '/admin/ordenes', etiqueta: 'Órdenes' },
+];
+---
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title} · NexoPlay</title>
+  </head>
+  <body>
+    <div class="admin">
+      <aside class="admin__sidebar">
+        <a class="admin__marca" href="/">
+          <span>NexoPlay</span>
+          <small>Panel</small>
+        </a>
+        <nav class="admin__nav">
+          {articulos.map((a) => (
+            <a
+              href={a.href}
+              class:list={{ 'admin__enlace': true, 'admin__enlace--activo': ruta === a.href }}
+            >
+              {a.etiqueta}
+            </a>
+          ))}
+        </nav>
+        <div class="admin__usuario">
+          <div class="admin__avatar">{(usuario.nombre?.[0] || usuario.email?.[0] || '?').toUpperCase()}</div>
+          <div class="admin__datos">
+            <strong>{usuario.nombre || usuario.email}</strong>
+            <small>{usuario.rol}</small>
+          </div>
+          <CerrarSesion client:load />
+        </div>
+      </aside>
+      <main class="admin__contenido">
+        <header class="admin__cabecera">
+          <h1>{title}</h1>
+        </header>
+        <slot />
+      </main>
+    </div>
+  </body>
+</html>

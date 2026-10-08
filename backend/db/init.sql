@@ -38,7 +38,9 @@ CREATE TABLE productos (
   precio        NUMERIC(10, 2) NOT NULL,
   imagen        TEXT,
   stock         INTEGER NOT NULL DEFAULT 0,
-  categoria_id  INTEGER NOT NULL REFERENCES categorias(id)
+  -- Nullable: el panel permite productos sin categoria (el catalogo de la
+  -- portada los sigue mostrando; la pagina de categoria, por definicion, no).
+  categoria_id  INTEGER REFERENCES categorias(id)
 );
 
 -- `password` es NULL para usuarios que solo iniciaron sesión con Google.
@@ -54,17 +56,24 @@ CREATE TABLE usuarios (
   google_id      TEXT UNIQUE,
   avatar_url     TEXT,
   auth_provider  TEXT NOT NULL DEFAULT 'LOCAL' CHECK (auth_provider IN ('LOCAL', 'GOOGLE')),
-  rol            TEXT NOT NULL DEFAULT 'CLIENTE' CHECK (rol IN ('ADMIN', 'CLIENTE')),
+  rol            TEXT NOT NULL DEFAULT 'CLIENTE' CHECK (rol IN ('ADMIN', 'OPERADOR', 'CLIENTE')),
   CONSTRAINT password_o_google CHECK (password IS NOT NULL OR google_id IS NOT NULL)
 );
 
 CREATE TABLE pedidos (
-  id          SERIAL PRIMARY KEY,
-  usuario_id  INTEGER NOT NULL REFERENCES usuarios(id),
-  fecha       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  total       NUMERIC(10, 2) NOT NULL DEFAULT 0,
-  status      TEXT NOT NULL DEFAULT 'PENDING'
-              CHECK (status IN ('PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED'))
+  id              SERIAL PRIMARY KEY,
+  usuario_id      INTEGER NOT NULL REFERENCES usuarios(id),
+  fecha           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  total           NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  status          TEXT NOT NULL DEFAULT 'PENDING'
+                  CHECK (status IN ('PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED')),
+  -- Capa de cobros (practica "Metodos de cobro + Admin Dashboard")
+  metodo_pago     TEXT CHECK (metodo_pago IN ('MERCADO_PAGO', 'PAYPAL')),
+  estado_pago     TEXT NOT NULL DEFAULT 'PENDIENTE'
+                  CHECK (estado_pago IN ('PENDIENTE', 'APROBADO', 'RECHAZADO', 'CANCELADO')),
+  referencia_pago TEXT,
+  id_pago         TEXT,
+  fecha_pago      TIMESTAMPTZ
 );
 
 -- Detalle: relación N-N entre pedidos y productos, con la cantidad de cada renglón.
@@ -96,10 +105,14 @@ INSERT INTO productos (nombre, precio, imagen, stock, categoria_id) VALUES
   ('EA SPORTS FC 24 - PlayStation 5',      699.00, 'https://cdn2.gameplanet.com/wp-content/uploads/2023/09/28194054/014633748697-portada-fc24-ps5-1.jpg', 60, 3);
 
 -- Usuario admin local (para poder entrar sin depender de Google en
--- desarrollo/pruebas); el password de ejemplo se documenta en el README
--- del backend, y en producción se cambiaría por un hash real (bcrypt).
+-- desarrollo/pruebas); el password es un hash bcrypt real de "admin123"
+-- (estas cuentas demo se documentan en el README del backend, y en
+-- producción se cambian por unas reales). Tambien se crean las cuentas
+-- de demostracion Operador y Cliente para la evaluacion presencial.
 INSERT INTO usuarios (nombre, email, password, auth_provider, rol) VALUES
-  ('Admin NexoPlay', 'admin@nexoplay.com', 'hashed:admin123', 'LOCAL', 'ADMIN');
+  ('Admin NexoPlay', 'admin@nexoplay.com', '$2b$10$JfloyPsTPjZKUOoBMtQdduAVCF4DHidTKh0oziVkjdisEwMTGXJLq', 'LOCAL', 'ADMIN'),
+  ('Operador NexoPlay', 'operador@nexoplay.com', '$2b$10$L.Gv21z/UQoCQ8R9DvjKYO1xn9sODOVBgerl.Sr4zHNDUBjGWQfkK', 'LOCAL', 'OPERADOR'),
+  ('Cliente Demo', 'cliente@nexoplay.com', '$2b$10$GlIatUhSnNm0UzNbUK1dB.CvEoKvWuUfg7BnIJQTYujK3mz8c37jK', 'LOCAL', 'CLIENTE');
 
 -- Nota: ya NO se inserta aquí un usuario "Juan Perez" con password de
 -- ejemplo ni un pedido semilla a su nombre, porque en este proyecto los
@@ -161,7 +174,9 @@ GRANT web_user TO authenticator;
 GRANT USAGE ON SCHEMA public TO web_user;
 GRANT SELECT ON categorias, productos TO web_user;
 GRANT SELECT, INSERT ON pedidos, detalle_pedido TO web_user;
-GRANT SELECT, UPDATE ON usuarios TO web_user;
+-- UPDATE a nivel de columnas (no del rol): un cliente puede editar sus datos
+-- de perfil, pero nunca su rol (evita escalada CLIENTE -> ADMIN via PATCH).
+GRANT UPDATE (nombre, email, password, avatar_url) ON usuarios TO web_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO web_user;
 
 -- web_admin: el rol del panel administrativo — CRUD completo de

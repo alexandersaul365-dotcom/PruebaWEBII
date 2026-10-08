@@ -21,5 +21,14 @@ export const onRequest = defineMiddleware(async (context, next) => {
     context.locals.sesionCaducada = false;
   }
 
+  // Las rutas /admin/* son el dashboard del panel: exigen sesion con rol
+  // ADMIN u OPERADOR. Cualquier otra visita acaba en /login.
+  if (context.url.pathname.startsWith('/admin')) {
+    const rol = context.locals.sesion?.usuario?.rol;
+    if (!rol || !['ADMIN', 'OPERADOR'].includes(rol)) {
+      return context.redirect('/login');
+    }
+  }
+
   return next();
 });

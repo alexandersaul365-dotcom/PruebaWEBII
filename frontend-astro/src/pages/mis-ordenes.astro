@@ -1,0 +1,145 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { graphqlRequest } from '../lib/graphql.js';
+import { QUERIES } from '../lib/queries.js';
+
+// /mis-ordenes se renderiza en el servidor: con la cookie ya validada por el
+// middleware se consulta el backend y se pinta el HTML de entrada. El pseudo
+// "papeleta" se confirma en /pago/resultado despues de pagar.
+const sesion = Astro.locals.sesion;
+
+let pedidos = [];
+let error = null;
+if (sesion) {
+  try {
+    const datos = await graphqlRequest(QUERIES.misPedidos, {}, sesion.token);
+    pedidos = datos.pedidos || [];
+  } catch (err) {
+    error = err.message;
+  }
+}
+
+const nombreEstado = {
+  APROBADO: 'Pagado',
+  PENDIENTE: 'Pendiente',
+  RECHAZADO: 'Rechazado',
+  REEMBOLSADO: 'Reembolsado',
+};
+---
+<BaseLayout title="Mis órdenes">
+  <section class="contenedor" style="max-width: 760px; margin-top: 32px;">
+    <h1>Mis órdenes</h1>
+
+    {
+      !sesion ? (
+        <p>
+          <a href="/login">Inicia sesión</a> para ver tus órdenes.
+        </p>
+      ) : error ? (
+        <p class="error">{error}</p>
+      ) : pedidos.length === 0 ? (
+        <p class="vacio">Aún no tienes órdenes. <a href="/">Ve el catálogo</a>.</p>
+      ) : (
+        <ul class="ordenes">
+          {pedidos.map((p) => (
+            <li class="orden">
+              <div class="orden__cabecera">
+                <strong>Pedido #{p.id}</strong>
+                <span class="orden__fecha">
+                  {new Date(p.fecha).toLocaleString('es-MX')}
+                </span>
+              </div>
+              <ul class="orden__items">
+                {p.detalles.map((r, i) => (
+                  <li key={i}>
+                    {r.producto.nombre} × {r.cantidad}
+                  </li>
+                ))}
+              </ul>
+              <div class="orden__pie">
+                <span>
+                  Total: <strong>${Number(p.total).toFixed(2)} MXN</strong>
+                </span>
+                <span class="orden__badges">
+                  <span class={`badge badge--${p.estadoPago}`}>
+                    {nombreEstado[p.estadoPago] || p.estadoPago}
+                  </span>
+                  <span class={`badge badge--${p.status}`}>{p.status}</span>
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+  </section>
+  <style>
+    h1 {
+      font-family: var(--font-display);
+      margin-bottom: 20px;
+    }
+    .vacio,
+    .error {
+      color: var(--texto-secundario);
+    }
+    .error {
+      color: var(--error);
+    }
+    .ordenes {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .orden {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .orden__cabecera {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .orden__fecha {
+      color: var(--texto-secundario);
+      font-size: 13px;
+    }
+    .orden__items {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      color: var(--texto-secundario);
+      font-size: 14px;
+    }
+    .orden__pie {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .orden__badges {
+      display: flex;
+      gap: 6px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge--APROBADO, .badge--DELIVERED { background: #dcfce7; color: #166534; }
+    .badge--PENDIENTE, .badge--PENDING { background: #fef9c3; color: #854d0e; }
+    .badge--RECHAZADO, .badge--CANCELLED, .badge--CANCELADO { background: #fee2e2; color: #991b1b; }
+    .badge--REEMBOLSADO, .badge--SHIPPED { background: #e0f2fe; color: #075985; }
+  </style>
+</BaseLayout>

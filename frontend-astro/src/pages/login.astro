@@ -1,0 +1,13 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import AuthForm from '../components/AuthForm.jsx';
+---
+<BaseLayout title="Iniciar sesión">
+  <section class="contenedor" style="max-width: 480px; margin-top: 32px;">
+    <h1>Iniciar sesión</h1>
+    <AuthForm client:load modo="login" />
+  </section>
+  <style>
+    h1 { font-family: var(--font-display); margin-bottom: 20px; }
+  </style>
+</BaseLayout>

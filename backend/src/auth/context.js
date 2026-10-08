@@ -39,3 +39,16 @@ export function requerirAdmin(context) {
   }
   return usuario;
 }
+
+/**
+ * Lanza si no hay sesion o el usuario no pertenece al equipo del panel
+ * administrativo (ADMIN u OPERADOR). Cubre Dashboard y gestion de ordenes;
+ * las operaciones exclusivas de dueno siguen exigiendo requerirAdmin().
+ */
+export function requerirPanel(context) {
+  const usuario = requerirUsuario(context);
+  if (usuario.rol !== 'ADMIN' && usuario.rol !== 'OPERADOR') {
+    throw new Error('Necesitas permisos de administrador u operador para esto.');
+  }
+  return usuario;
+}

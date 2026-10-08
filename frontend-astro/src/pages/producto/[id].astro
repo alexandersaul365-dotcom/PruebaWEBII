@@ -21,9 +21,13 @@ if (!producto && !errorCarga) {
 <BaseLayout title={producto ? producto.nombre : 'Producto'}>
   <section class="contenedor detalle">
     {producto && (
-      <a href={`/categoria/${producto.categoria.id}`} class="volver">
-        ← {producto.categoria.nombre}
-      </a>
+      producto.categoria ? (
+        <a href={`/categoria/${producto.categoria.id}`} class="volver">
+          ← {producto.categoria.nombre}
+        </a>
+      ) : (
+        <a href="/" class="volver">← Catálogo</a>
+      )
     )}
 
     {errorCarga && <p class="error">No se pudo cargar el producto: {errorCarga}</p>}

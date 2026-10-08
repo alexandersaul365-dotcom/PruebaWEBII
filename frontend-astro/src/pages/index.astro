@@ -55,7 +55,9 @@ try {
           <img src={p.imagen} alt={p.nombre} loading="lazy" />
           <div class="tarjeta-producto__info">
             <span class="tarjeta-producto__nombre">{p.nombre}</span>
-            <span class="tarjeta-producto__categoria">{p.categoria.nombre}</span>
+            {p.categoria && (
+              <span class="tarjeta-producto__categoria">{p.categoria.nombre}</span>
+            )}
             <strong>${Number(p.precio).toFixed(2)} MXN</strong>
           </div>
         </a>
