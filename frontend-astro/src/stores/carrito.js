@@ -61,6 +61,22 @@ export function quitarDelCarrito(productoId) {
   $carrito.set($carrito.get().filter((r) => r.productoId !== productoId));
 }
 
+/**
+ * Ajusta la cantidad de un renglón existente, limitada entre 1 y el stock
+ * capturado al agregarlo. No permite llegar a 0: para eliminar el producto
+ * del carrito se usa quitarDelCarrito.
+ */
+export function cambiarCantidad(productoId, cantidad) {
+  const n = Math.max(1, Math.floor(cantidad) || 1);
+  $carrito.set(
+    $carrito.get().map((r) => {
+      if (r.productoId !== productoId) return r;
+      const tope = Number(r.stock) > 0 ? Number(r.stock) : n;
+      return { ...r, cantidad: Math.min(n, tope) };
+    })
+  );
+}
+
 export function vaciarCarrito() {
   $carrito.set([]);
 }

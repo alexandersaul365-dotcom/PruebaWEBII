@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
-import { $carrito, quitarDelCarrito, vaciarCarrito } from '../stores/carrito.js';
+import { $carrito, cambiarCantidad, quitarDelCarrito, vaciarCarrito } from '../stores/carrito.js';
+import CantidadSelector from './CantidadSelector.jsx';
 import { $sesion } from '../stores/sesion.js';
 import { graphqlRequest, MUTATIONS, QUERIES } from '../lib/graphql.js';
 import { formatoMoneda } from '../lib/formatos.js';
@@ -288,7 +289,6 @@ export default function CarritoCheckout() {
               >
                 <div className="carrito__renglon-info">
                   <span className="carrito__nombre">{r.nombre}</span>
-                  <span className="carrito__cantidad">×{r.cantidad}</span>
                   {invalido && (
                     <small className="carrito__aviso carrito__aviso--alerta">
                       Solo quedan {r.stock}
@@ -297,11 +297,16 @@ export default function CarritoCheckout() {
                 </div>
                 <div className="carrito__renglon-der">
                   <strong>{formatoMoneda(r.precio * r.cantidad)}</strong>
+                  <CantidadSelector
+                    cantidad={r.cantidad}
+                    onCambio={(n) => cambiarCantidad(r.productoId, n)}
+                    stock={r.stock}
+                  />
                   <button
-                    className="boton boton--texto boton--peligro"
+                    className="boton boton--texto boton--peligro carrito__eliminar-todos"
                     onClick={() => quitarDelCarrito(r.productoId)}
                   >
-                    Eliminar
+                    Eliminar todos
                   </button>
                 </div>
               </li>
@@ -373,9 +378,15 @@ export default function CarritoCheckout() {
           .carrito__renglon--invalido .carrito__nombre { color: var(--danger); }
           .carrito__renglon-info { display: flex; flex-direction: column; gap: 2px; }
           .carrito__nombre { font-size: 15px; font-weight: 600; }
-          .carrito__cantidad { color: var(--text-muted); font-size: 13px; }
-          .carrito__renglon-der { display: flex; align-items: center; gap: 10px; }
+          .carrito__renglon-der { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
           .carrito__renglon-der strong { font-size: 15px; }
+          .carrito__eliminar-todos {
+            width: 64px;
+            text-align: center;
+            white-space: normal;
+            line-height: 1.2;
+            flex-shrink: 0;
+          }
           .checkout__renglon {
             display: flex; justify-content: space-between; align-items: baseline;
             font-size: 14px; color: var(--text-muted); padding: 6px 0;

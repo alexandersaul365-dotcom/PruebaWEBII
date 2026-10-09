@@ -51,6 +51,7 @@ if (!producto && !errorCarga) {
           <div class="detalle__acciones">
             <BotonAgregar
               client:load
+              conCantidad
               producto={{
                 id: producto.id,
                 nombre: producto.nombre,
@@ -111,6 +112,7 @@ if (!producto && !errorCarga) {
       flex-wrap: wrap;
     }
     .detalle__acciones > * { flex: 1; max-width: 240px; min-width: 160px; }
+    .detalle__acciones > :first-child { max-width: 340px; }
     .detalle__acciones .boton--secundario {
       min-height: 44px;
       justify-content: center;

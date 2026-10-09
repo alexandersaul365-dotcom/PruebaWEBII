@@ -1,6 +1,41 @@
 import { useState } from 'react';
 import GoogleBoton from './GoogleBoton.jsx';
 
+function OjoAbierto() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function OjoCerrado() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  );
+}
+
 /**
  * Formulario de acceso/registro de NexoPlay, presentado como una tarjeta
  * centrada de 420px. Al éxito la cookie httpOnly queda puesta y se redirige
@@ -12,6 +47,8 @@ export default function AuthForm({ modo = 'login' }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmacion, setConfirmacion] = useState('');
+  const [verPassword, setVerPassword] = useState(false);
+  const [verConfirmacion, setVerConfirmacion] = useState(false);
   const [error, setError] = useState(null);
   const [procesando, setProcesando] = useState(false);
 
@@ -85,29 +122,51 @@ export default function AuthForm({ modo = 'login' }) {
 
           <label className="auth__campo">
             <span>Contraseña</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={6}
-              autoComplete={esLogin ? 'current-password' : 'new-password'}
-              placeholder="••••••••"
-            />
+            <div className="auth__campo-con-ojito">
+              <input
+                type={verPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+                autoComplete={esLogin ? 'current-password' : 'new-password'}
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                className="auth__ojito"
+                onClick={() => setVerPassword((v) => !v)}
+                aria-label={verPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                aria-pressed={verPassword}
+              >
+                {verPassword ? <OjoCerrado /> : <OjoAbierto />}
+              </button>
+            </div>
           </label>
 
           {!esLogin && (
             <label className="auth__campo">
               <span>Confirmar contraseña</span>
-              <input
-                type="password"
-                value={confirmacion}
-                onChange={(e) => setConfirmacion(e.target.value)}
-                required
-                minLength={6}
-                autoComplete="new-password"
-                placeholder="••••••••"
-              />
+              <div className="auth__campo-con-ojito">
+                <input
+                  type={verConfirmacion ? 'text' : 'password'}
+                  value={confirmacion}
+                  onChange={(e) => setConfirmacion(e.target.value)}
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  className="auth__ojito"
+                  onClick={() => setVerConfirmacion((v) => !v)}
+                  aria-label={verConfirmacion ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  aria-pressed={verConfirmacion}
+                >
+                  {verConfirmacion ? <OjoCerrado /> : <OjoAbierto />}
+                </button>
+              </div>
             </label>
           )}
 
@@ -204,6 +263,27 @@ export default function AuthForm({ modo = 'login' }) {
           border-color: var(--primary);
           box-shadow: 0 0 0 3px var(--ring);
         }
+        .auth__campo-con-ojito { position: relative; }
+        .auth__campo-con-ojito input { width: 100%; padding-right: 44px; }
+        .auth__ojito {
+          position: absolute;
+          top: 50%;
+          right: 6px;
+          transform: translateY(-50%);
+          width: 32px;
+          height: 32px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: none;
+          border-radius: var(--radius);
+          background: transparent;
+          color: var(--text-muted);
+          cursor: pointer;
+          transition: color 0.15s ease, background 0.15s ease;
+        }
+        .auth__ojito:hover { color: var(--primary); background: var(--surface-2); }
+        .auth__ojito svg { width: 20px; height: 20px; }
         .auth__error {
           color: var(--danger);
           font-size: 14px;
