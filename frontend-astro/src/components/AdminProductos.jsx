@@ -140,7 +140,7 @@ export default function AdminProductos() {
       {productos.length === 0 ? (
         <p className="panel-vacio">Aún no hay productos. Crea el primero con "Nuevo producto".</p>
       ) : (
-        <table className="tabla tabla--clickeable" style="margin-top: 16px;">
+        <table className="tabla tabla--clickeable" style={{ marginTop: '16px' }}>
           <thead>
             <tr>
               <th>Producto</th>
@@ -153,19 +153,28 @@ export default function AdminProductos() {
           <tbody>
             {productos.map((p) => (
               <tr key={p.id} onClick={() => abrirEditar(p)}>
-                <td style="max-width: 240px;">
-                  <span style="overflow: hidden; text-overflow: ellipsis; display: inline-block; white-space: nowrap; max-width: 100%; vertical-align: middle;">
+                <td style={{ maxWidth: '240px' }}>
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      display: 'inline-block',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '100%',
+                      verticalAlign: 'middle',
+                    }}
+                  >
                     {p.nombre}
                   </span>
                 </td>
                 <td>{p.categoria?.nombre || '—'}</td>
-                <td style="font-weight: 600;">{formatoMoneda(p.precio)}</td>
+                <td style={{ fontWeight: 600 }}>{formatoMoneda(p.precio)}</td>
                 <td>
                   <span className={`badge ${p.stock === 0 ? 'badge--bad' : p.stock <= 5 ? 'badge--pending' : 'badge--ok'}`}>
                     {p.stock}
                   </span>
                 </td>
-                <td style="text-align: right; white-space: nowrap;">
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <button
                     type="button"
                     className="accion-icono"
@@ -280,7 +289,14 @@ export default function AdminProductos() {
                 <img
                   src={form.imagen}
                   alt="Vista previa"
-                  style="width: 88px; height: 88px; object-fit: contain; background: var(--surface-2); border-radius: 10px; padding: 6px;"
+                  style={{
+                    width: '88px',
+                    height: '88px',
+                    objectFit: 'contain',
+                    background: 'var(--surface-2)',
+                    borderRadius: 10,
+                    padding: 6,
+                  }}
                 />
               )}
 

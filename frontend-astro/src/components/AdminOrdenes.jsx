@@ -137,9 +137,9 @@ export default function AdminOrdenes() {
       </div>
 
       {pedidos.length === 0 ? (
-        <p className="panel-vacio" style="margin-top: 16px;">No hay órdenes que coincidan.</p>
+        <p className="panel-vacio" style={{ marginTop: '16px' }}>No hay órdenes que coincidan.</p>
       ) : (
-        <table className="tabla tabla--clickeable" style="margin-top: 16px;">
+        <table className="tabla tabla--clickeable" style={{ marginTop: '16px' }}>
           <thead>
             <tr>
               <th>ID</th>
@@ -154,7 +154,7 @@ export default function AdminOrdenes() {
           <tbody>
             {pedidos.map((p) => (
               <tr key={p.id} onClick={() => abrirDetalle(p.id)}>
-                <td style="font-weight: 700;">#{p.id}</td>
+                <td style={{ fontWeight: 700 }}>#{p.id}</td>
                 <td>
                   {new Date(p.fecha).toLocaleDateString('es-MX', {
                     day: '2-digit',
@@ -162,12 +162,21 @@ export default function AdminOrdenes() {
                     year: 'numeric',
                   })}
                 </td>
-                <td style="max-width: 180px;">
-                  <span style="overflow: hidden; text-overflow: ellipsis; display: inline-block; white-space: nowrap; max-width: 100%; vertical-align: middle;">
+                <td style={{ maxWidth: '180px' }}>
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      display: 'inline-block',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '100%',
+                      verticalAlign: 'middle',
+                    }}
+                  >
                     {p.usuario?.nombre || p.usuario?.email || '—'}
                   </span>
                 </td>
-                <td style="font-weight: 600;">{formatoMoneda(p.total)}</td>
+                <td style={{ fontWeight: 600 }}>{formatoMoneda(p.total)}</td>
                 <td>
                   <span className={`badge badge--${tonoCobro(p.estadoPago)}`}>
                     {estadoCobroEs(p.estadoPago)}
@@ -178,7 +187,7 @@ export default function AdminOrdenes() {
                     {estadoEnvioEs(p.status)}
                   </span>
                 </td>
-                <td style="text-align: right;">
+                <td style={{ textAlign: 'right' }}>
                   <IconoFlecha size={16} />
                 </td>
               </tr>
@@ -247,7 +256,7 @@ function DetalleOrden({ detalle, procesando, onCambiarEstado }) {
         </div>
         <div>
           <dt>Total</dt>
-          <dd style="font-weight: 700;">{formatoMoneda(detalle.total)}</dd>
+          <dd style={{ fontWeight: 700 }}>{formatoMoneda(detalle.total)}</dd>
         </div>
       </dl>
 
@@ -286,7 +295,7 @@ function DetalleOrden({ detalle, procesando, onCambiarEstado }) {
               : 'Este pedido ya no permite cambios de estado.'}
           </p>
         ) : (
-          <div className="form-grid-2" style="align-items: end;">
+          <div className="form-grid-2" style={{ alignItems: 'end' }}>
             <label className="campo">
               <span>Actual</span>
               <input value={estadoEnvioEs(detalle.status)} disabled />

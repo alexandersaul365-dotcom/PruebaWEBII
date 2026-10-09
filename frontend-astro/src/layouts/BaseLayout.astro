@@ -41,15 +41,13 @@ const usuarioInicial = Astro.locals.sesion?.usuario ?? null;
     <header class="topbar">
       <div class="contenedor topbar__inner">
         <a href="/" class="topbar__logo accion-icono" aria-label="Inicio">
-          <svg
+          <img
+            src="/Gemini_Generated_Image_ioo3eiioo3eiioo3.png"
+            alt=""
             width="32"
             height="32"
-            viewBox="0 0 32 32"
-            aria-hidden="true"
-          >
-            <rect width="32" height="32" rx="8" fill="var(--primary)" />
-            <path d="M13 10l9 6-9 6z" fill="var(--accent)" />
-          </svg>
+            class="topbar__logo-img"
+          />
           <span class="topbar__marca">
             <span>Nexo</span><span class="topbar__marca-play">Play</span>
           </span>
@@ -94,6 +92,10 @@ const usuarioInicial = Astro.locals.sesion?.usuario ?? null;
         justify-content: flex-start;
         width: auto;
         height: 40px;
+      }
+      .topbar__logo-img {
+        border-radius: 8px;
+        object-fit: contain;
       }
       .topbar__marca {
         font-family: var(--font-display);

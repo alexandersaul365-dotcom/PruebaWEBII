@@ -3,13 +3,7 @@ import '../styles/tokens.css';
 import '../styles/admin.css';
 import ThemeToggle from '../components/ThemeToggle.jsx';
 import { nombreRolEs } from '../lib/formatos.js';
-import {
-  IconoOrdenes,
-  IconoPanel,
-  IconoProducto,
-  IconoTienda,
-  IconoSalir,
-} from '../components/Iconos.jsx';
+import { IconoOrdenes, IconoPanel, IconoProducto, IconoTienda } from '../components/Iconos.jsx';
 
 // Panel de administración (/admin/*). Ya lo protege el middleware: aquí ya
 // sabemos que Astro.locals.sesion.usuario existe y es ADMIN u OPERADOR.
@@ -58,10 +52,13 @@ const iniciales = (usuario.nombre || usuario.email || '?')
     <div class="admin">
       <aside class="admin__sidebar">
         <a class="admin__marca" href="/admin" title="Panel de administración">
-          <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
-            <rect width="32" height="32" rx="8" fill="var(--primary)" />
-            <path d="M13 10l9 6-9 6z" fill="var(--accent)" />
-          </svg>
+          <img
+            src="/Gemini_Generated_Image_ioo3eiioo3eiioo3.png"
+            alt=""
+            width="32"
+            height="32"
+            class="admin__marca-img"
+          />
           <span class="admin__marca-nombre">
             <span>Nexo<span style="color: var(--accent);">Play</span></span>
             <small>Panel</small>
@@ -90,18 +87,9 @@ const iniciales = (usuario.nombre || usuario.email || '?')
             </div>
           </div>
           <div class="admin__usuario-acciones">
-            <a href="/" class="accion-icono" title="Ver tienda" aria-label="Ver tienda">
+            <a href="/" class="accion-icono" title="Regresar a la página principal" aria-label="Regresar a la página principal">
               <IconoTienda size={20} />
-              <span class="tooltip">Ver tienda</span>
-            </a>
-            <a
-              href="/auth/sesion?salir=1"
-              class="accion-icono"
-              title="Salir"
-              aria-label="Cerrar sesión"
-            >
-              <IconoSalir size={20} />
-              <span class="tooltip">Salir</span>
+              <span class="tooltip">Regresar a la página principal</span>
             </a>
           </div>
         </div>
