@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
+import ProductCard from '../../components/ProductCard.astro';
 import { graphqlRequest, QUERIES } from '../../lib/graphql.js';
 
 const { id } = Astro.params;
@@ -18,51 +19,59 @@ if (!categoria && !errorCarga) {
 }
 ---
 <BaseLayout title={categoria ? categoria.nombre : 'Categoría'}>
-  <section class="contenedor">
-    <a href="/" class="volver">← Volver al inicio</a>
+  <section class="contenedor pagina">
+    <a href="/" class="enlace-volver">← Catálogo</a>
 
-    {errorCarga && <p class="error">No se pudo cargar la categoría: {errorCarga}</p>}
+    {errorCarga && <p class="cargar-error">No se pudo cargar la categoría: {errorCarga}</p>}
 
     {categoria && (
       <>
         <h1>{categoria.nombre}</h1>
-        <div class="grid-productos">
-          {categoria.productos.map((p) => (
-            <a href={`/producto/${p.id}`} class="tarjeta-producto">
-              <img src={p.imagen} alt={p.nombre} loading="lazy" />
-              <div class="tarjeta-producto__info">
-                <span class="tarjeta-producto__nombre">{p.nombre}</span>
-                <strong>${Number(p.precio).toFixed(2)} MXN</strong>
-                <small>{p.stock > 0 ? `${p.stock} en stock` : 'Sin stock'}</small>
-              </div>
-            </a>
-          ))}
-        </div>
+        {categoria.productos.length === 0 ? (
+          <p class="vacio">Aún no hay productos en esta categoría.</p>
+        ) : (
+          <div class="grid-productos">
+            {categoria.productos.map((p) => <ProductCard producto={p} />)}
+          </div>
+        )}
       </>
     )}
   </section>
 
   <style>
-    .volver { color: var(--texto-secundario); text-decoration: none; font-size: 14px; }
-    h1 { font-family: var(--font-display); margin-top: 12px; }
+    .pagina { padding-top: 24px; }
+    .enlace-volver {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      display: inline-block;
+      margin-bottom: 12px;
+    }
+    .enlace-volver:hover { color: var(--primary); }
+    h1 {
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1.2;
+      margin: 0 0 20px;
+    }
     .grid-productos {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
       gap: 20px;
-      margin-top: 24px;
     }
-    .tarjeta-producto {
+    .vacio {
+      color: var(--text-muted);
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-md);
+      padding: 24px;
+    }
+    .cargar-error {
+      color: var(--danger);
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      overflow: hidden;
-      text-decoration: none;
-      color: var(--texto);
+      border-radius: var(--radius-md);
+      padding: 16px;
     }
-    .tarjeta-producto img { width: 100%; height: 160px; object-fit: cover; background: var(--surface-muted); }
-    .tarjeta-producto__info { padding: 14px; display: flex; flex-direction: column; gap: 4px; }
-    .tarjeta-producto__nombre { font-weight: 600; }
-    .tarjeta-producto__info small { color: var(--texto-secundario); }
-    .error { color: var(--error); }
   </style>
 </BaseLayout>

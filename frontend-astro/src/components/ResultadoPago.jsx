@@ -2,19 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { vaciarCarrito } from '../stores/carrito.js';
 import { graphqlRequest } from '../lib/graphql.js';
 import { MUTATIONS } from '../lib/queries.js';
-
-const formatoMXN = new Intl.NumberFormat('es-MX', {
-  style: 'currency',
-  currency: 'MXN',
-});
+import { formatoMoneda } from '../lib/formatos.js';
+import { IconoAlerta, IconoCheck, IconoReloj } from './Iconos.jsx';
 
 /**
  * Pantalla /pago/resultado?pedido=N&proveedor=...
  *
  * Al volver de la pasarela consulta el estado REAL del cobro contra la API de
  * Mercado Pago / PayPal (los webhooks no llegan a un localhost en desarrollo).
- * Si el pago quedo APROBADO se vacio el carrito (reservado al crear el pedido)
- * y se muestra el pedido confirmado.
+ * Si el pago quedó APROBADO se vacía el carrito (reservado al crear el
+ * pedido) y se muestra el pedido confirmado.
  */
 export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
   const [estado, setEstado] = useState('VIENDO'); // 'VIENDO' | 'OK' | 'ERROR' | 'ESPERA'
@@ -33,12 +30,14 @@ export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
       return;
     }
 
-    // PayPal regresa con estado=cancelado si el comprador no aprobo; MP con
-    // estado=failure si el cobro rechazo. En ambos casos no hay nada que
-    // verificar: el pedido sigue pendiente y se puede reintentar.
+    // PayPal regresa con estado=cancelado si el comprador no aprobó; MP con
+    // estado=failure si el cobro rechazó. En ambos casos el pedido sigue
+    // pendiente y se puede reintentar.
     if (estadoQuery === 'cancelado' || estadoQuery === 'failure') {
       setEstado('ERROR');
-      setError('El pago no se completó. Tu pedido sigue esperando y puedes intentarlo de nuevo cuando quieras.');
+      setError(
+        'El pago no se completó. Tu pedido sigue esperando y puedes intentarlo de nuevo cuando quieras.'
+      );
       return;
     }
 
@@ -47,7 +46,9 @@ export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
       setEstado('VIENDO');
       setError(null);
       try {
-        const resultado = await graphqlRequest(MUTATIONS.verificarPago, { pedidoId: String(pedido) });
+        const resultado = await graphqlRequest(MUTATIONS.verificarPago, {
+          pedidoId: String(pedido),
+        });
         if (!activo) return;
         const p = resultado.verificarPago;
         setInfo(p);
@@ -56,19 +57,17 @@ export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
         const esTerminal = ['APROBADO', 'RECHAZADO', 'REEMBOLSADO'].includes(p.estadoPago);
 
         if (esAprobado) {
-          // El pago quedo registrado: el carrito ya se entrego al pedido.
           vaciarCarrito();
           setEstado('OK');
         } else if (p.estadoPago === 'PENDIENTE' || p.estadoPago === null || p.estadoPago === undefined) {
-          // MP a veces tarda unos segundos en reflejar el pago; damos una
-          // pequena reintento antes de declararlo pendiente.
+          // MP a veces tarda unos segundos en reflejar el pago.
           setTimeout(() => {
             if (activo) consultar();
           }, 3000);
           setEstado('ESPERA');
         } else if (esTerminal) {
           setEstado('ERROR');
-          setError('La pasarela reporto que el pago no se completo.');
+          setError('La pasarela reportó que el pago no se completó.');
         } else {
           setEstado('ERROR');
           setError('No se pudo confirmar el pago.');
@@ -87,7 +86,6 @@ export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
   }, [pedido, estadoQuery]);
 
   const recalcular = () => {
-    // Re-consulta manual: útil si la pasarela seguia procesando.
     setEstado('VIENDO');
     setError(null);
     graphqlRequest(MUTATIONS.verificarPago, { pedidoId: String(pedido) })
@@ -98,7 +96,7 @@ export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
           setEstado('OK');
         } else {
           setEstado('ERROR');
-          setError('El cobro aun no aparece como aprobado.');
+          setError('El cobro aún no aparece como aprobado.');
         }
       })
       .catch((err) => setError(err.message));
@@ -106,43 +104,55 @@ export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
 
   if (estado === 'ESPERA') {
     return (
-      <div className="resultado resultado--espera">
+      <div className="resultado">
+        <span className="resultado__icono resultado__icono--espera">
+          <IconoReloj size={40} />
+        </span>
         <h1>Verificando tu pago…</h1>
         <p>Estamos confirmando el cobro con la pasarela. Un momento por favor.</p>
+        <style>{ESTILOS}</style>
       </div>
     );
   }
 
   if (estado === 'ERROR' || (estado !== 'OK' && info && info.estadoPago !== 'APROBADO')) {
-    // Cuando la pasarela reporto retorno por cancelacion/rechazo el boton de
-    // re-consultar no tiene sentido (no hay un cobros en vuelo): se ofrece,
-    // mejor, volver a las ordenes del cliente.
     const esCancel = estadoQuery === 'cancelado' || estadoQuery === 'failure';
     return (
-      <div className="resultado resultado--fallo">
+      <div className="resultado">
+        <span className="resultado__icono resultado__icono--fallo">
+          <IconoAlerta size={40} />
+        </span>
         <h1>La pasarela no confirmó el cobro</h1>
         {error ? <p>{error}</p> : <p>El pago no quedó registrado.</p>}
         <div className="resultado__acciones">
-          <a href="/" className="boton boton--secundario">Seguir comprando</a>
           {esCancel ? (
-            <a href="/mis-ordenes" className="boton boton--texto">Ver mis órdenes</a>
+            <a href="/mis-ordenes" className="boton boton--primario">
+              Volver a mis órdenes
+            </a>
           ) : (
-            <button className="boton boton--texto" onClick={recalcular}>
+            <button className="boton boton--primario" onClick={recalcular}>
               Volver a consultar
             </button>
           )}
+          <a href="/" className="boton boton--texto">
+            Seguir comprando
+          </a>
         </div>
+        <style>{ESTILOS}</style>
       </div>
     );
   }
 
   if (estado === 'OK' && info) {
     return (
-      <div className="resultado resultado--ok">
+      <div className="resultado">
+        <span className="resultado__icono resultado__icono--ok">
+          <IconoCheck size={40} />
+        </span>
         <h1>¡Pago aprobado!</h1>
         <p>
           Tu pedido <strong>#{info.id}</strong> se pagó con {proveedorTitulo} por{' '}
-          <strong>{formatoMXN.format(Number(info.total))}</strong>.
+          <strong>{formatoMoneda(info.total)}</strong>.
         </p>
         {info.fechaPago && (
           <p className="resultado__meta">
@@ -153,11 +163,59 @@ export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
           <a href="/mis-ordenes" className="boton boton--primario">
             Ver mis órdenes
           </a>
-          <a href="/" className="boton boton--texto">Seguir comprando</a>
+          <a href="/" className="boton boton--texto">
+            Seguir comprando
+          </a>
         </div>
+        <style>{ESTILOS}</style>
       </div>
     );
   }
 
-  return <div className="panel-cargando">Verificando pago…</div>;
+  return (
+    <div className="resultado">
+      <p className="resultado__cargando">Verificando pago…</p>
+      <style>{ESTILOS}</style>
+    </div>
+  );
 }
+
+const ESTILOS = `
+  .resultado {
+    text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 40px 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  .resultado__icono {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+  }
+  .resultado__icono--ok { color: var(--st-ok-fg); background: var(--st-ok-bg); }
+  .resultado__icono--fallo { color: var(--st-bad-fg); background: var(--st-bad-bg); }
+  .resultado__icono--espera { color: var(--st-pending-fg); background: var(--st-pending-bg); }
+  .resultado h1 { font-size: 28px; font-weight: 700; margin: 0; }
+  .resultado p { margin: 0; color: var(--text-muted); font-size: 15px; }
+  .resultado__meta { font-size: 13px !important; }
+  .resultado__acciones {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    max-width: 260px;
+    margin-top: 8px;
+  }
+  .resultado__cargando { color: var(--text-muted); }
+`;

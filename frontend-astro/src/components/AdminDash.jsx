@@ -1,11 +1,32 @@
 import { useEffect, useState } from 'react';
 import { graphqlRequest } from '../lib/graphql.js';
 import { QUERIES } from '../lib/queries.js';
+import {
+  estadoCobroEs,
+  estadoEnvioEs,
+  formatoMoneda,
+  tonoCobro,
+  tonoEnvio,
+} from '../lib/formatos.js';
 
-const formatoMXN = new Intl.NumberFormat('es-MX', {
-  style: 'currency',
-  currency: 'MXN',
-});
+const ORDEN_POR_ESTADO = [
+  ['PENDING', 'Pendiente'],
+  ['CONFIRMED', 'Confirmado'],
+  ['SHIPPED', 'Enviado'],
+  ['DELIVERED', 'Entregado'],
+  ['CANCELLED', 'Cancelado'],
+];
+
+// Esqueleto de carga hasta que el panel responde.
+function Esqueleto() {
+  return (
+    <div className="skeleton">
+      <div className="skeleton__fila" />
+      <div className="skeleton__fila" />
+      <div className="skeleton__fila" />
+    </div>
+  );
+}
 
 export default function AdminDash() {
   const [cargando, setCargando] = useState(true);
@@ -13,57 +34,62 @@ export default function AdminDash() {
   const [stats, setStats] = useState(null);
 
   useEffect(() => {
-    graphqlRequest(QUERIES.estadisticasPanel)
+    // limiteStock=5 para el aviso de existencias bajas: el backend trae un
+    // tope por defecto de 10, así que se pasa explícito desde el front.
+    graphqlRequest(QUERIES.estadisticasPanel, { limiteStock: 5, topeRecientes: 5 })
       .then((d) => setStats(d.estadisticasPanel))
       .catch((err) => setError(err.message))
       .finally(() => setCargando(false));
   }, []);
 
-  if (cargando) return <p className="panel-cargando">Cargando estadísticas…</p>;
+  if (cargando) return <Esqueleto />;
   if (error) return <p className="panel-error">{error}</p>;
 
-  const ordenEstados = ['PENDIENTE', 'APROBADO', 'RECHAZADO', 'REEMBOLSADO'];
+  const conteoPorEstado = new Map((stats.pedidosPorEstado || []).map((p) => [p.estado, p.cantidad]));
 
   return (
-    <div className="admin-dash">
+    <div>
       <div className="kpis">
-        <article>
+        <article className="kpi-card">
           <span>Ingresos (pagado)</span>
-          <strong>{formatoMXN.format(stats.ingresosTotales || 0)}</strong>
+          <strong>{formatoMoneda(stats.ingresosTotales || 0)}</strong>
         </article>
-        <article>
+        <article className="kpi-card">
           <span>Ticket promedio</span>
-          <strong>{formatoMXN.format(stats.ticketPromedio || 0)}</strong>
+          <strong>{formatoMoneda(stats.ticketPromedio || 0)}</strong>
         </article>
-        <article>
+        <article className="kpi-card">
           <span>Pedidos</span>
           <strong>{stats.totalPedidos}</strong>
         </article>
-        <article>
-          <span>Productos con stock bajo (≤ 5)</span>
+        <article className="kpi-card">
+          <span>Stock bajo (≤ 5)</span>
           <strong>{(stats.stockBajo || []).length}</strong>
         </article>
       </div>
 
-      <div className="dash-seccion">
-        <h2>Pedidos por estado</h2>
-        <ul className="dash-lista">
-          {ordenEstados.map((estado) => {
-            const encontrado = (stats.pedidosPorEstado || []).find((p) => p.estado === estado);
-            return (
-              <li key={estado}>
-                <span className={`badge badge--${estado}`}>{estado}</span>
-                <em>{encontrado?.cantidad || 0}</em>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+      <section className="dash-seccion">
+        <div className="dash-seccion--header">
+          <h2>Pedidos por estado</h2>
+        </div>
+        <div className="pills">
+          {ORDEN_POR_ESTADO.map(([estado, etiqueta]) => (
+            <span key={estado} className={`pill pill--estado badge badge--${tonoEnvio(estado)}`}>
+              {etiqueta}: {conteoPorEstado.get(estado) || 0}
+            </span>
+          ))}
+        </div>
+      </section>
 
-      <div className="dash-seccion">
-        <h2>Stock bajo</h2>
+      <section className="dash-seccion">
+        <div className="dash-seccion--header">
+          <h2>Stock bajo</h2>
+          {stats.stockBajo.length > 0 && (
+            <span className="badge badge--bad">{stats.stockBajo.length} productos</span>
+          )}
+        </div>
         {stats.stockBajo.length === 0 ? (
-          <p className="panel-cargando">No hay productos con stock bajo.</p>
+          <p className="panel-vacio">No hay productos con stock bajo.</p>
         ) : (
           <table className="tabla">
             <thead>
@@ -77,19 +103,25 @@ export default function AdminDash() {
               {stats.stockBajo.map((p) => (
                 <tr key={p.id}>
                   <td>{p.nombre}</td>
-                  <td>{formatoMXN.format(Number(p.precio))}</td>
-                  <td>{p.stock}</td>
+                  <td>{formatoMoneda(p.precio)}</td>
+                  <td>
+                    <span className={`badge ${p.stock === 0 ? 'badge--bad' : 'badge--pending'}`}>
+                      {p.stock}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-      </div>
+      </section>
 
-      <div className="dash-seccion">
-        <h2>Últimos pedidos</h2>
+      <section className="dash-seccion">
+        <div className="dash-seccion--header">
+          <h2>Últimos pedidos</h2>
+        </div>
         {stats.pedidosRecientes.length === 0 ? (
-          <p className="panel-cargando">Aún no hay pedidos.</p>
+          <p className="panel-vacio">Aún no hay pedidos.</p>
         ) : (
           <table className="tabla">
             <thead>
@@ -105,28 +137,24 @@ export default function AdminDash() {
               {stats.pedidosRecientes.map((p) => (
                 <tr key={p.id}>
                   <td>#{p.id}</td>
-                  <td>{p.usuario?.nombre || p.usuario?.email}</td>
-                  <td>{formatoMXN.format(Number(p.total))}</td>
+                  <td>{p.usuario?.nombre || p.usuario?.email || '—'}</td>
+                  <td>{formatoMoneda(p.total)}</td>
                   <td>
-                    <span className={`badge badge--${p.estadoPago}`}>{p.estadoPago}</span>
+                    <span className={`badge badge--${tonoCobro(p.estadoPago)}`}>
+                      {estadoCobroEs(p.estadoPago)}
+                    </span>
                   </td>
                   <td>
-                    <span className={`badge badge--${p.status}`}>{p.status}</span>
+                    <span className={`badge badge--${tonoEnvio(p.status)}`}>
+                      {estadoEnvioEs(p.status)}
+                    </span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-      </div>
-
-      <style>{`
-        .dash-seccion { margin-top: 28px; }
-        .dash-seccion h2 { font-size: 16px; font-family: var(--font-display); margin: 0 0 10px; }
-        .dash-lista { list-style: none; margin: 0; padding: 0; display: flex; gap: 12px; flex-wrap: wrap; }
-        .dash-lista li { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px 14px; }
-        .dash-lista em { font-style: normal; font-weight: 700; }
-      `}</style>
+      </section>
     </div>
   );
 }

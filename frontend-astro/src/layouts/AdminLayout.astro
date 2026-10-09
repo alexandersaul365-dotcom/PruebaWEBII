@@ -1,19 +1,34 @@
 ---
-// Layout del panel de administracion (/admin/*). Ya lo protege el
-// middleware: aqui ya sabemos que Astro.locals.sesion.usuario existe y con
-// rol ADMIN u OPERADOR.
+import '../styles/tokens.css';
 import '../styles/admin.css';
-import CerrarSesion from '../components/CerrarSesion.jsx';
+import ThemeToggle from '../components/ThemeToggle.jsx';
+import { nombreRolEs } from '../lib/formatos.js';
+import {
+  IconoOrdenes,
+  IconoPanel,
+  IconoProducto,
+  IconoTienda,
+  IconoSalir,
+} from '../components/Iconos.jsx';
 
-const { title = 'Panel de administración' } = Astro.props;
+// Panel de administración (/admin/*). Ya lo protege el middleware: aquí ya
+// sabemos que Astro.locals.sesion.usuario existe y es ADMIN u OPERADOR.
+const { title = 'Panel' } = Astro.props;
 const usuario = Astro.locals.sesion.usuario;
 const ruta = Astro.url.pathname;
 
 const articulos = [
-  { href: '/admin', etiqueta: 'Dashboard' },
-  { href: '/admin/productos', etiqueta: 'Productos' },
-  { href: '/admin/ordenes', etiqueta: 'Órdenes' },
+  { href: '/admin', etiqueta: 'Dashboard', Icono: IconoPanel },
+  { href: '/admin/productos', etiqueta: 'Productos', Icono: IconoProducto },
+  { href: '/admin/ordenes', etiqueta: 'Órdenes', Icono: IconoOrdenes },
 ];
+
+const iniciales = (usuario.nombre || usuario.email || '?')
+  .trim()
+  .split(/\s+/)
+  .slice(0, 2)
+  .map((p) => p.charAt(0).toUpperCase())
+  .join('');
 ---
 <!doctype html>
 <html lang="es">
@@ -21,38 +36,91 @@ const articulos = [
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{title} · NexoPlay</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
+    <script is:inline>
+      (function () {
+        try {
+          var guardado = localStorage.getItem('nexoplay_tema');
+          var oscuro =
+            guardado === 'dark' ||
+            (guardado !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.setAttribute('data-theme', oscuro ? 'dark' : 'light');
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div class="admin">
       <aside class="admin__sidebar">
-        <a class="admin__marca" href="/">
-          <span>NexoPlay</span>
-          <small>Panel</small>
+        <a class="admin__marca" href="/admin" title="Panel de administración">
+          <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="8" fill="var(--primary)" />
+            <path d="M13 10l9 6-9 6z" fill="var(--accent)" />
+          </svg>
+          <span class="admin__marca-nombre">
+            <span>Nexo<span style="color: var(--accent);">Play</span></span>
+            <small>Panel</small>
+          </span>
         </a>
+
         <nav class="admin__nav">
           {articulos.map((a) => (
             <a
               href={a.href}
               class:list={{ 'admin__enlace': true, 'admin__enlace--activo': ruta === a.href }}
+              title={a.etiqueta}
             >
-              {a.etiqueta}
+              <a.Icono size={20} />
+              <span class="admin__enlace-lb">{a.etiqueta}</span>
             </a>
           ))}
         </nav>
+
         <div class="admin__usuario">
-          <div class="admin__avatar">{(usuario.nombre?.[0] || usuario.email?.[0] || '?').toUpperCase()}</div>
-          <div class="admin__datos">
-            <strong>{usuario.nombre || usuario.email}</strong>
-            <small>{usuario.rol}</small>
+          <div class="admin__usuario-fila">
+            <span class="admin__avatar" aria-hidden="true">{iniciales}</span>
+            <div class="admin__datos">
+              <strong>{usuario.nombre || usuario.email}</strong>
+              <small>{nombreRolEs(usuario.rol)}</small>
+            </div>
           </div>
-          <CerrarSesion client:load />
+          <div class="admin__usuario-acciones">
+            <a href="/" class="accion-icono" title="Ver tienda" aria-label="Ver tienda">
+              <IconoTienda size={20} />
+              <span class="tooltip">Ver tienda</span>
+            </a>
+            <a
+              href="/auth/sesion?salir=1"
+              class="accion-icono"
+              title="Salir"
+              aria-label="Cerrar sesión"
+            >
+              <IconoSalir size={20} />
+              <span class="tooltip">Salir</span>
+            </a>
+          </div>
         </div>
       </aside>
+
       <main class="admin__contenido">
         <header class="admin__cabecera">
-          <h1>{title}</h1>
+          <nav class="admin__migas" aria-label="Ruta del panel">
+            NexoPlay / <span>{title}</span>
+          </nav>
+          <div class="admin__cabecera-der">
+            <ThemeToggle client:load compacto />
+            <span class="admin__cabecera-avatar" aria-hidden="true">{iniciales}</span>
+          </div>
         </header>
-        <slot />
+
+        <div class="admin__contenido-inner">
+          <slot />
+        </div>
       </main>
     </div>
   </body>

@@ -105,7 +105,20 @@ export const QUERIES = {
         status
         metodoPago
         estadoPago
-        detalles { cantidad producto { nombre } }
+        detalles { cantidad producto { id nombre } }
+      }
+    }
+  `,
+  // Pedido propio, para retomar un pago pendiente desde Mis Órdenes:
+  // /carrito?pagar=<id>. El resolver `pedido(id)` exige ser el dueño.
+  miPedidoPendiente: `
+    query MiPedidoPendiente($id: ID!) {
+      pedido(id: $id) {
+        id
+        total
+        status
+        estadoPago
+        detalles { cantidad subtotal producto { id nombre } }
       }
     }
   `,

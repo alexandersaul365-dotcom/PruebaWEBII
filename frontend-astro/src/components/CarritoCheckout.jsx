@@ -1,29 +1,71 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { $carrito, quitarDelCarrito, vaciarCarrito } from '../stores/carrito.js';
 import { $sesion } from '../stores/sesion.js';
-import { graphqlRequest, MUTATIONS } from '../lib/graphql.js';
+import { graphqlRequest, MUTATIONS, QUERIES } from '../lib/graphql.js';
+import { formatoMoneda } from '../lib/formatos.js';
 
-// Isla que resuelve carrito + checkout de /carrito.astro.
-// Flujo: se crea el pedido (PENDING / cobro PENDIENTE), se elige metodo de
-// pago (Mercado Pago o PayPal) y se redirige a la pasarela. El estado real
-// del cobro se confirma en /pago/resultado.
+/**
+ * Isla de la página /carrito y de la reanudación de pago.
+ *
+ * Flujo normal: se crea el pedido (envío PENDING / cobro PENDIENTE), se
+ * elige método (Mercado Pago o PayPal) y se redirige a la pasarela; el
+ * cobro real se confirma en /pago/resultado.
+ *
+ * Reanudación: al llegar con ?pagar=<id> (desde Mis Órdenes, solo si el
+ * cobro sigue PENDIENTE) se consulta el pedido por API —el proxy adjunta la
+ * cookie httpOnly y el backend valida que sea del dueño— y se abre directo
+ * en "Elige cómo pagar" sin cargar el carrito.
+ *
+ * Hidratación: $carrito vive en localStorage, así que el servidor siempre lo
+ * vería vacío. Con `listo` solo se pinta contenido DESPUÉS de montar la
+ * isla, evitando el choque de hidratación (React #418/#423).
+ */
 export default function CarritoCheckout() {
   const carrito = useStore($carrito);
   const sesion = useStore($sesion);
+  const [listo, setListo] = useState(false);
   const [procesando, setProcesando] = useState(false);
   const [pedido, setPedido] = useState(null);
   const [error, setError] = useState(null);
-  // Guarda contra doble clic: un click doble no debe crear DOS pedidos (ni
-  // dos preferencias de pago). React puede no haber re-renderizado aun cuando
-  // llega el segundo click, asi que "procesando" solo no basta.
+  const [pagarError, setPagarError] = useState(null);
+  // Guarda contra doble clic: un doble clic no debe crear DOS pedidos (ni
+  // dos preferencias de pago).
   const enProceso = useRef(false);
+
+  useEffect(() => {
+    setListo(true);
+
+    // Reanudación de un cobro pendiente desde Mis Órdenes.
+    const idPendiente = new URLSearchParams(window.location.search).get('pagar');
+    if (idPendiente) {
+      graphqlRequest(QUERIES.miPedidoPendiente, { id: idPendiente })
+        .then((datos) => {
+          const p = datos?.pedido;
+          if (!p) {
+            setError('No se encontró ese pedido.');
+            return;
+          }
+          if (p.estadoPago === 'APROBADO') {
+            setError('Ese pedido ya fue pagado. Lo puedes ver en Mis órdenes.');
+            return;
+          }
+          setPedido(p);
+        })
+        .catch((err) => {
+          setPagarError(
+            err.status === 401
+              ? { estado: 401 }
+              : { estado: 0, mensaje: err.message }
+          );
+        });
+      return undefined;
+    }
+    return undefined;
+  }, []);
 
   const total = carrito.reduce((acc, r) => acc + r.precio * r.cantidad, 0);
 
-  // Renglones cuya cantidad pedida excede el stock que se tenia registrado en
-  // la tienda. El backend re-valida el stock real y es la autoridad final;
-  // este aviso solo evita viajar al backend con algo que ya se sabe invalido.
   const renglonesInvalidos = carrito.filter(
     (r) => Number(r.stock) > 0 && (r.cantidad || 0) > Number(r.stock)
   );
@@ -42,16 +84,20 @@ export default function CarritoCheckout() {
       }
       const data = await graphqlRequest(
         MUTATIONS.crearPedido,
-        { d: { detalles: carrito.map((r) => ({ productoId: r.productoId, cantidad: r.cantidad })) } }
-        // En el navegador el token no viaja aca: /api/graphql lee la cookie
-        // httpOnly y autoriza al backend por nosotros.
+        {
+          d: {
+            detalles: carrito.map((r) => ({ productoId: r.productoId, cantidad: r.cantidad })),
+          },
+        }
+        // En el navegador el token no viaja acá: /api/graphql lee la cookie
+        // httpOnly y autoriza contra el backend por nosotros.
       );
       setPedido(data.crearPedido);
       vaciarCarrito();
     } catch (err) {
       setError(
         err.status === 401
-          ? 'Tu sesion expiro. Vuelve a iniciar sesion y confirma el pedido.'
+          ? 'Tu sesión expiró. Vuelve a iniciar sesión y confirma el pedido.'
           : err.message
       );
     } finally {
@@ -64,35 +110,82 @@ export default function CarritoCheckout() {
     if (enProceso.current) return;
     enProceso.current = true;
     setProcesando(true);
-    setError(null);
+    setPagarError(null);
     try {
       const mutation =
         metodo === 'MERCADO_PAGO'
           ? MUTATIONS.iniciarPagoMercadoPago
           : MUTATIONS.iniciarPagoPayPal;
-      const data = await graphqlRequest(
-        mutation,
-        { pedidoId: String(pedido.id) }
-        // Idem: el proxy /api/graphql adjunta la cookie httpOnly.
-      );
-      const url = metodo === 'MERCADO_PAGO' ? data.iniciarPagoMercadoPago.url : data.iniciarPagoPayPal.url;
-      if (!url) throw new Error('La pasarela no devolvio una URL de pago.');
+      const data = await graphqlRequest(mutation, { pedidoId: String(pedido.id) });
+      const url =
+        metodo === 'MERCADO_PAGO'
+          ? data.iniciarPagoMercadoPago.url
+          : data.iniciarPagoPayPal.url;
+      if (!url) throw new Error('La pasarela no devolvió una URL de pago.');
       window.location.assign(url);
     } catch (err) {
-      setError(`No se pudo iniciar el pago: ${err.message}`);
+      setPagarError(`No se pudo iniciar el pago: ${err.message}`);
       enProceso.current = false;
       setProcesando(false);
     }
   };
 
-  // --- Paso 2: elegir metodo de pago --------------------------------
+  // Durante/antes de la hidratación no pintamos contenido para no chocar.
+  if (!listo) return null;
+
+  // Error al reanudar pago por sesión perdida.
+  if (pagarError?.estado === 401) {
+    return (
+      <div className="carrito-aviso">
+        <p>Tu sesión expiró. Inicia sesión de nuevo para pagar tu pedido.</p>
+        <a href="/login" className="boton boton--primario">
+          Iniciar sesión
+        </a>
+        <style>{`
+          .carrito-aviso {
+            text-align: center;
+            padding: 40px 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            color: var(--text);
+          }
+        `}</style>
+      </div>
+    );
+  }
+  if (pagarError) {
+    return (
+      <div className="carrito-aviso">
+        <p className="carrito-aviso__error">No se pudo recuperar el pedido: {pagarError.mensaje}</p>
+        <a href="/mis-ordenes" className="boton boton--secundario">
+          Volver a mis órdenes
+        </a>
+        <style>{`
+          .carrito-aviso {
+            text-align: center;
+            padding: 40px 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+          }
+          .carrito-aviso__error { color: var(--danger); }
+        `}</style>
+      </div>
+    );
+  }
+
+  // --- Paso 2: elegir método de pago (o reanudado con ?pagar=) -------
   if (pedido) {
     return (
       <div className="checkout-metodo">
+        <span className="checkout-metodo__eyebrow">Pago pendiente</span>
         <h2>Elige cómo pagar</h2>
-        <p>
-          Pedido <strong>#{pedido.id}</strong> — Total:{' '}
-          <strong>${Number(pedido.total).toFixed(2)} MXN</strong>
+        <p className="checkout-metodo__resumen">
+          Pedido <strong>#{pedido.id}</strong> · Total{' '}
+          <strong>{formatoMoneda(pedido.total)}</strong>
         </p>
 
         <div className="checkout-metodo__opciones">
@@ -101,20 +194,28 @@ export default function CarritoCheckout() {
             onClick={() => pagarCon('MERCADO_PAGO')}
             disabled={procesando}
           >
-            <strong>Mercado Pago</strong>
-            <span>Tarjeta, saldo o transferencia redirigiendo a Mercado Pago.</span>
+            <span className="tarjeta-pago__logo tarjeta-pago__logo--mp">MP</span>
+            <span className="tarjeta-pago__texto">
+              <strong>Mercado Pago</strong>
+              <span>Tarjeta, saldo o transferencia redirigiendo a Mercado Pago.</span>
+            </span>
+            <span className="tarjeta-pago__flecha">→</span>
           </button>
           <button
             className="tarjeta-pago"
             onClick={() => pagarCon('PAYPAL')}
             disabled={procesando}
           >
-            <strong>PayPal</strong>
-            <span>Paga con tu cuenta PayPal (sandbox) en pocos clics.</span>
+            <span className="tarjeta-pago__logo tarjeta-pago__logo--pp">P</span>
+            <span className="tarjeta-pago__texto">
+              <strong>PayPal</strong>
+              <span>Paga con tu cuenta PayPal (sandbox) en pocos clics.</span>
+            </span>
+            <span className="tarjeta-pago__flecha">→</span>
           </button>
         </div>
 
-        {error && <p className="checkout-metodo__error">{error}</p>}
+        {pagarError && <p className="checkout-metodo__error">{pagarError}</p>}
         {procesando && <p className="checkout-metodo__aviso">Redirigiendo a la pasarela…</p>}
 
         <a href="/" className="boton boton--texto">
@@ -123,107 +224,176 @@ export default function CarritoCheckout() {
 
         <style>{`
           .checkout-metodo { display: flex; flex-direction: column; gap: 14px; }
-          .checkout-metodo__opciones { display: flex; flex-direction: column; gap: 12px; }
+          .checkout-metodo__eyebrow {
+            font-size: 13px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.06em; color: var(--accent);
+          }
+          .checkout-metodo h2 { font-size: 28px; font-weight: 700; margin: 0; }
+          .checkout-metodo__resumen { margin: 0; font-size: 15px; }
+          .checkout-metodo__resumen strong { color: var(--primary); }
+          .checkout-metodo__opciones { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
           .tarjeta-pago {
             cursor: pointer; text-align: left; font: inherit;
             background: var(--surface); border: 1px solid var(--border);
-            border-radius: var(--radius-lg); padding: 16px;
-            display: flex; flex-direction: column; gap: 4px;
+            border-radius: var(--radius-md); padding: 16px;
+            display: flex; align-items: center; gap: 12px;
+            transition: border-color 0.15s ease;
           }
-          .tarjeta-pago:hover:not(:disabled) { border-color: var(--violeta); }
+          .tarjeta-pago:hover:not(:disabled) { border-color: var(--primary); }
           .tarjeta-pago:disabled { opacity: 0.6; cursor: wait; }
-          .tarjeta-pago span { color: var(--texto-secundario); font-size: 13px; }
-          .checkout-metodo__error { color: var(--error); font-size: 14px; }
-          .checkout-metodo__aviso { color: var(--texto-secundario); font-size: 14px; }
+          .tarjeta-pago__logo {
+            width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-size: 13px; font-weight: 800; color: #fff;
+          }
+          .tarjeta-pago__logo--mp { background: #00b1ea; }
+          .tarjeta-pago__logo--pp { background: #ffc439; color: #003087; }
+          .tarjeta-pago__texto { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+          .tarjeta-pago__texto strong { font-size: 15px; }
+          .tarjeta-pago__texto span { color: var(--text-muted); font-size: 13px; }
+          .tarjeta-pago__flecha { color: var(--text-muted); font-size: 18px; }
+          .checkout-metodo__error { color: var(--danger); font-size: 14px; margin: 0; }
+          .checkout-metodo__aviso { color: var(--text-muted); font-size: 14px; margin: 0; }
         `}</style>
       </div>
     );
   }
 
-  // --- Sin sesion / carrito vacio / paso 1 (confirmar) ---------------
+  // --- Sin sesión / carrito vacío / paso 1 (confirmar) ---------------
   if (carrito.length === 0) {
     return (
       <div className="carrito-vacio">
-        <p>Tu carrito esta vacio.</p>
+        <p>Tu carrito está vacío.</p>
         <a href="/" className="boton boton--secundario">
-          Ver catalogo
+          Ver catálogo
         </a>
+        <style>{`
+          .carrito-vacio { text-align: center; padding: 48px 0; }
+        `}</style>
       </div>
     );
   }
 
   return (
-    <div className="carrito">
-      <ul className="carrito__lista">
-        {carrito.map((r) => {
-          const invalido = Number(r.stock) > 0 && (r.cantidad || 0) > Number(r.stock);
-          return (
-            <li
-              key={r.productoId}
-              className={`carrito__renglon${invalido ? ' carrito__renglon--invalido' : ''}`}
-            >
-              <span className="carrito__nombre">
-                {r.nombre} <small>x{r.cantidad}</small>
-                {typeof r.stock === 'number' && (
-                  <small className="carrito__stock">
-                    {' '}
-                    · {r.stock} disp.
-                  </small>
-                )}
-              </span>
-              <span>${(r.precio * r.cantidad).toFixed(2)}</span>
-              <button
-                className="boton boton--texto boton--peligro"
-                onClick={() => quitarDelCarrito(r.productoId)}
+    <div className="checkout">
+      <div className="checkout__panel">
+        <h2>Tu carrito</h2>
+        <ul className="carrito__lista">
+          {carrito.map((r) => {
+            const invalido = Number(r.stock) > 0 && (r.cantidad || 0) > Number(r.stock);
+            return (
+              <li
+                key={r.productoId}
+                className={`carrito__renglon${invalido ? ' carrito__renglon--invalido' : ''}`}
               >
-                Quitar
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-
-      <div className="carrito__total">
-        <strong>Total: ${total.toFixed(2)} MXN</strong>
+                <div className="carrito__renglon-info">
+                  <span className="carrito__nombre">{r.nombre}</span>
+                  <span className="carrito__cantidad">×{r.cantidad}</span>
+                  {invalido && (
+                    <small className="carrito__aviso carrito__aviso--alerta">
+                      Solo quedan {r.stock}
+                    </small>
+                  )}
+                </div>
+                <div className="carrito__renglon-der">
+                  <strong>{formatoMoneda(r.precio * r.cantidad)}</strong>
+                  <button
+                    className="boton boton--texto boton--peligro"
+                    onClick={() => quitarDelCarrito(r.productoId)}
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       </div>
 
-      {renglonesInvalidos.length > 0 && (
-        <p className="carrito__aviso carrito__aviso--alerta">
-          Hay productos que ya exceden su existencia. Ajusta las cantidades antes de continuar.
-        </p>
-      )}
+      <aside className="checkout__resumen">
+        <h3>Resumen</h3>
+        <div className="checkout__renglon">
+          <span>Subtotal</span>
+          <span>{formatoMoneda(total)}</span>
+        </div>
+        <div className="checkout__renglon">
+          <span>Envío</span>
+          <span>Gratis</span>
+        </div>
+        <div className="checkout__renglon checkout__renglon--total">
+          <span>Total</span>
+          <strong>{formatoMoneda(total)}</strong>
+        </div>
 
-      {!sesion ? (
-        <p className="carrito__aviso">
-          <a href="/login">Inicia sesión</a> para confirmar tu pedido.
-        </p>
-      ) : (
-        <button
-          className="boton boton--primario"
-          onClick={confirmarPedido}
-          disabled={procesando || renglonesInvalidos.length > 0}
-        >
-          {procesando ? 'Procesando...' : 'Confirmar pedido'}
-        </button>
-      )}
+        {renglonesInvalidos.length > 0 && (
+          <p className="carrito__aviso carrito__aviso--alerta">
+            Hay productos que ya exceden su existencia. Ajusta las cantidades antes de continuar.
+          </p>
+        )}
 
-      {error && <p className="carrito__error">{error}</p>}
+        {error && <p className="checkout__error">{error}</p>}
 
-      <style>{`
-        .carrito__lista { list-style: none; padding: 0; margin: 0 0 20px; }
-        .carrito__renglon {
-          display: flex; justify-content: space-between; align-items: center;
-          gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border);
-        }
-        .carrito__renglon--invalido .carrito__nombre { color: var(--error); }
-        .carrito__nombre small { color: var(--texto-secundario); }
-        .carrito__stock { color: var(--texto-secundario); }
-        .carrito__total { font-size: 18px; margin-bottom: 16px; }
-        .carrito__aviso { color: var(--texto-secundario); font-size: 14px; }
-        .carrito__aviso--alerta { color: var(--error); }
-        .carrito__error { color: var(--error); margin-top: 10px; }
-        .carrito-vacio, .checkout-ok { text-align: center; padding: 40px 0; }
-      `}</style>
+        {!sesion ? (
+          <p className="carrito__aviso">
+            <a href="/login">Inicia sesión</a> para confirmar tu pedido.
+          </p>
+        ) : (
+          <button
+            className="boton boton--primario boton--ancho"
+            onClick={confirmarPedido}
+            disabled={procesando || renglonesInvalidos.length > 0}
+          >
+            {procesando ? 'Procesando…' : 'Confirmar pedido'}
+          </button>
+        )}
+      </aside>
+
+      <style>
+        {`
+          .checkout {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 20px;
+            align-items: start;
+          }
+          .checkout__panel, .checkout__resumen {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+          }
+          .checkout__panel h2 { font-size: 20px; font-weight: 700; margin: 0 0 12px; }
+          .checkout__resumen h3 { font-size: 18px; font-weight: 700; margin: 0 0 12px; }
+          .carrito__lista { list-style: none; padding: 0; margin: 0; }
+          .carrito__renglon {
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border);
+          }
+          .carrito__renglon:last-child { border-bottom: none; }
+          .carrito__renglon--invalido .carrito__nombre { color: var(--danger); }
+          .carrito__renglon-info { display: flex; flex-direction: column; gap: 2px; }
+          .carrito__nombre { font-size: 15px; font-weight: 600; }
+          .carrito__cantidad { color: var(--text-muted); font-size: 13px; }
+          .carrito__renglon-der { display: flex; align-items: center; gap: 10px; }
+          .carrito__renglon-der strong { font-size: 15px; }
+          .checkout__renglon {
+            display: flex; justify-content: space-between; align-items: baseline;
+            font-size: 14px; color: var(--text-muted); padding: 6px 0;
+          }
+          .checkout__renglon--total {
+            color: var(--text); font-size: 18px; margin: 8px 0 16px;
+            border-top: 1px solid var(--border); padding-top: 12px;
+          }
+          .checkout__renglon--total strong { color: var(--primary); }
+          .carrito__aviso { color: var(--text-muted); font-size: 14px; margin: 12px 0; }
+          .carrito__aviso--alerta { color: var(--danger); }
+          .checkout__error { color: var(--danger); font-size: 14px; margin: 10px 0; }
+          .boton--ancho { width: 100%; height: 44px; }
+          @media (max-width: 760px) {
+            .checkout { grid-template-columns: 1fr; }
+          }
+        `}
+      </style>
     </div>
   );
 }
