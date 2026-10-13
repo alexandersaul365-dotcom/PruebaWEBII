@@ -22,11 +22,11 @@ await server.start();
 
 app.use('/graphql', expressMiddleware(server, { context: crearContext }));
 
-// --- Webhook Mercado Pago ------------------------------------------------
+// --- Webhook Mercado Pago (Checkout API) ---------------------------------
 // Mercado Pago notifica aqui cada vez que un pago cambia de estado. En
 // sandbox local no hay URL publica para que lleguen (se usa la verificacion
-// al volver en /pago/resultado), pero el endpoint queda listo para cuando el
-// backend este desplegado o usando ngrok.
+// por API al volver en /pago/resultado), pero el endpoint queda listo para
+// cuando el backend este desplegado o usando ngrok.
 app.post('/api/pagos/mercadopago/webhook', async (req, res) => {
   const { data, type } = req.body || {};
   const dataId = data?.id;

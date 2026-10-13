@@ -150,6 +150,22 @@ export const typeDefs = `#graphql
     cantidad: Int!
   }
 
+  """Datos del pago con tarjeta para Mercado Pago (Checkout API). El token y
+  el metodo los genera MercadoPago.js v2 en el navegador con la Public Key;
+  nunca llegan los datos crudos de la tarjeta al backend."""
+  input PagoMercadoPagoInput {
+    "Token de tarjeta de un solo uso generado por MercadoPago.js."
+    token: String!
+    "payment_method_id devuelto por el brick (visa, master, etc.)."
+    paymentMethodId: String!
+    "Numero de cuotas elegido (al menos 1)."
+    installments: Int
+    "Banco emisor, cuando el brick lo devuelve."
+    issuerId: String
+    "Correo del pagador (requerido por Mercado Pago)."
+    payerEmail: String!
+  }
+
   """Datos para registrar un pedido nuevo.
   El usuario del pedido se toma del JWT autenticado, nunca del cliente."""
   input PedidoInput {
@@ -217,8 +233,8 @@ export const typeDefs = `#graphql
     """
     iniciarSesionGoogle(idToken: String!): SesionAuth!
 
-    "Crea la preferencia de Mercado Pago para un pedido y devuelve la URL de pago."
-    iniciarPagoMercadoPago(pedidoId: ID!): UrlPago!
+    "Procesa el pago de un pedido con Mercado Pago (Checkout API/Transparente)."
+    procesarPagoMercadoPago(pedidoId: ID!, datos: PagoMercadoPagoInput!): Pedido!
 
     "Crea la orden de pago en PayPal para un pedido y devuelve la URL de aprobacion."
     iniciarPagoPayPal(pedidoId: ID!): UrlPago!

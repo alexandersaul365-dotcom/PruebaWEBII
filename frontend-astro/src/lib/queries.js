@@ -173,9 +173,14 @@ export const MUTATIONS = {
       }
     }
   `,
-  iniciarPagoMercadoPago: `
-    mutation IniciarPagoMercadoPago($pedidoId: ID!) {
-      iniciarPagoMercadoPago(pedidoId: $pedidoId) { id url }
+  procesarPagoMercadoPago: `
+    mutation ProcesarPagoMercadoPago($pedidoId: ID!, $datos: PagoMercadoPagoInput!) {
+      procesarPagoMercadoPago(pedidoId: $pedidoId, datos: $datos) {
+        id
+        status
+        estadoPago
+        total
+      }
     }
   `,
   iniciarPagoPayPal: `

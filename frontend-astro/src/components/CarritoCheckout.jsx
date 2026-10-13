@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { $carrito, cambiarCantidad, quitarDelCarrito, vaciarCarrito } from '../stores/carrito.js';
 import CantidadSelector from './CantidadSelector.jsx';
+import PagoMercadoPago from './PagoMercadoPago.jsx';
 import { $sesion } from '../stores/sesion.js';
 import { graphqlRequest, MUTATIONS, QUERIES } from '../lib/graphql.js';
 import { formatoMoneda } from '../lib/formatos.js';
@@ -30,6 +31,9 @@ export default function CarritoCheckout() {
   const [pedido, setPedido] = useState(null);
   const [error, setError] = useState(null);
   const [pagarError, setPagarError] = useState(null);
+  // Con Checkout API, Mercado Pago ya no redirige: al elegirlo se muestra el
+  // brick de tarjeta en la misma pagina. PayPal conserva la redireccion.
+  const [metodoElegido, setMetodoElegido] = useState(null);
   // Guarda contra doble clic: un doble clic no debe crear DOS pedidos (ni
   // dos preferencias de pago).
   const enProceso = useRef(false);
@@ -107,22 +111,17 @@ export default function CarritoCheckout() {
     }
   };
 
-  const pagarCon = async (metodo) => {
+  const pagarConPayPal = async () => {
     if (enProceso.current) return;
     enProceso.current = true;
     setProcesando(true);
     setPagarError(null);
     try {
-      const mutation =
-        metodo === 'MERCADO_PAGO'
-          ? MUTATIONS.iniciarPagoMercadoPago
-          : MUTATIONS.iniciarPagoPayPal;
-      const data = await graphqlRequest(mutation, { pedidoId: String(pedido.id) });
-      const url =
-        metodo === 'MERCADO_PAGO'
-          ? data.iniciarPagoMercadoPago.url
-          : data.iniciarPagoPayPal.url;
-      if (!url) throw new Error('La pasarela no devolvió una URL de pago.');
+      const data = await graphqlRequest(MUTATIONS.iniciarPagoPayPal, {
+        pedidoId: String(pedido.id),
+      });
+      const url = data.iniciarPagoPayPal.url;
+      if (!url) throw new Error('PayPal no devolvió una URL de pago.');
       window.location.assign(url);
     } catch (err) {
       setPagarError(`No se pudo iniciar el pago: ${err.message}`);
@@ -183,45 +182,63 @@ export default function CarritoCheckout() {
     return (
       <div className="checkout-metodo">
         <span className="checkout-metodo__eyebrow">Pago pendiente</span>
-        <h2>Elige cómo pagar</h2>
-        <p className="checkout-metodo__resumen">
-          Pedido <strong>#{pedido.id}</strong> · Total{' '}
-          <strong>{formatoMoneda(pedido.total)}</strong>
-        </p>
+        <h2>{metodoElegido === 'MERCADO_PAGO' ? 'Paga con tarjeta' : 'Elige cómo pagar'}</h2>
 
-        <div className="checkout-metodo__opciones">
-          <button
-            className="tarjeta-pago"
-            onClick={() => pagarCon('MERCADO_PAGO')}
-            disabled={procesando}
-          >
-            <span className="tarjeta-pago__logo tarjeta-pago__logo--mp">MP</span>
-            <span className="tarjeta-pago__texto">
-              <strong>Mercado Pago</strong>
-              <span>Tarjeta, saldo o transferencia redirigiendo a Mercado Pago.</span>
-            </span>
-            <span className="tarjeta-pago__flecha">→</span>
-          </button>
-          <button
-            className="tarjeta-pago"
-            onClick={() => pagarCon('PAYPAL')}
-            disabled={procesando}
-          >
-            <span className="tarjeta-pago__logo tarjeta-pago__logo--pp">P</span>
-            <span className="tarjeta-pago__texto">
-              <strong>PayPal</strong>
-              <span>Paga con tu cuenta PayPal (sandbox) en pocos clics.</span>
-            </span>
-            <span className="tarjeta-pago__flecha">→</span>
-          </button>
-        </div>
+        {metodoElegido === 'MERCADO_PAGO' ? (
+          <PagoMercadoPago
+            pedidoId={pedido.id}
+            total={pedido.total}
+            payerEmail={sesion?.email}
+            onVolver={() => {
+              setPagarError(null);
+              setMetodoElegido(null);
+            }}
+          />
+        ) : (
+          <>
+            <p className="checkout-metodo__resumen">
+              Pedido <strong>#{pedido.id}</strong> · Total{' '}
+              <strong>{formatoMoneda(pedido.total)}</strong>
+            </p>
 
-        {pagarError && <p className="checkout-metodo__error">{pagarError}</p>}
-        {procesando && <p className="checkout-metodo__aviso">Redirigiendo a la pasarela…</p>}
+            <div className="checkout-metodo__opciones">
+              <button
+                className="tarjeta-pago"
+                onClick={() => {
+                  setPagarError(null);
+                  setMetodoElegido('MERCADO_PAGO');
+                }}
+                disabled={procesando}
+              >
+                <span className="tarjeta-pago__logo tarjeta-pago__logo--mp">MP</span>
+                <span className="tarjeta-pago__texto">
+                  <strong>Mercado Pago</strong>
+                  <span>Tarjeta de crédito o débito sin salir del sitio.</span>
+                </span>
+                <span className="tarjeta-pago__flecha">→</span>
+              </button>
+              <button
+                className="tarjeta-pago"
+                onClick={() => pagarConPayPal()}
+                disabled={procesando}
+              >
+                <span className="tarjeta-pago__logo tarjeta-pago__logo--pp">P</span>
+                <span className="tarjeta-pago__texto">
+                  <strong>PayPal</strong>
+                  <span>Paga con tu cuenta PayPal (sandbox) en pocos clics.</span>
+                </span>
+                <span className="tarjeta-pago__flecha">→</span>
+              </button>
+            </div>
 
-        <a href="/" className="boton boton--texto">
-          Volver al catálogo
-        </a>
+            {pagarError && <p className="checkout-metodo__error">{pagarError}</p>}
+            {procesando && <p className="checkout-metodo__aviso">Redirigiendo a PayPal…</p>}
+
+            <a href="/" className="boton boton--texto">
+              Volver al catálogo
+            </a>
+          </>
+        )}
 
         <style>{`
           .checkout-metodo { display: flex; flex-direction: column; gap: 14px; }

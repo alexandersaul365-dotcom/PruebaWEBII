@@ -1,17 +1,19 @@
-// Integracion con Mercado Pago (Checkout Pro, ambiente de prueba/sandbox).
+// Integracion con Mercado Pago (Checkout API / Checkout Transparente,
+// ambiente de prueba/sandbox).
 //
 // Flujo:
-//   1. iniciarPagoMercadoPago(pedidoId) crea una "preferencia" con los items
-//      del pedido y las URLs de retorno (back_urls) apuntando al frontend.
-//      La preferencia nos devuelve init_point / sandbox_init_point, a donde
-//      se redirige al cliente para pagar en Mercado Pago.
-//   2. Cuando el cliente vuelve (o via webhook), se consulta el pago por
-//      external_reference (que guardamos SIEMPRE como el id de nuestro
-//      pedido) y se actualiza estado_pago en la base.
+//   1. El navegador tokeniza la tarjeta con la Public Key (MercadoPago.js v2)
+//      y manda el token al backend via procesarPagoMercadoPago.
+//   2. crearPago() llama a POST /v1/payments con ese token y el monto del
+//      pedido (external_reference = id de nuestro pedido). Mercado Pago
+//      responde el estado del cobro en el momento (approved | rejected |
+//      pending | in_process).
+//   3. Si el pago queda pendiente, al volver a /pago/resultado se consulta el
+//      estado real por external_reference y se actualiza estado_pago.
 //
 // Webhook: Mercado Pago firma cada notificacion con el header x-signature
 // (algoritmo HMAC-SHA256). En sandbox local los webhooks no llegan (no hay
-// URL publica), asi que la verificacion principal es la consulta al volver.
+// URL publica), asi que la verificacion principal es la consulta por API.
 import { createHash } from 'node:crypto';
 
 const MERCADOPAGO_URL = 'https://api.mercadopago.com';
@@ -24,12 +26,13 @@ function tokenAcceso() {
   return token;
 }
 
-async function apiMercadoPago(ruta, { metodo = 'GET', cuerpo } = {}) {
+async function apiMercadoPago(ruta, { metodo = 'GET', cuerpo, encabezados = {} } = {}) {
   const respuesta = await fetch(`${MERCADOPAGO_URL}${ruta}`, {
     method: metodo,
     headers: {
       Authorization: `Bearer ${tokenAcceso()}`,
       'Content-Type': 'application/json',
+      ...encabezados,
     },
     body: cuerpo ? JSON.stringify(cuerpo) : undefined,
   });
@@ -49,43 +52,51 @@ async function apiMercadoPago(ruta, { metodo = 'GET', cuerpo } = {}) {
 }
 
 /**
- * Crea la preferencia de pago (Checkout Pro) para un pedido concreto.
- * external_reference = id del pedido, para encontrar el pago al volver.
- * Devuelve { id, url } donde url es el init_point de sandbox.
+ * Procesa un pago con Checkout API (Checkout Transparente). Recibe el token
+ * de tarjeta generado en el navegador con la Public Key y cobra el monto del
+ * pedido. external_reference = id del pedido, para encontrarlo despues.
+ * Devuelve { estado, idPago, statusDetail }.
  */
-export async function crearPreferencia({ pedidoId, titulo, total, items }) {
-  const appUrl = process.env.APP_URL || 'http://localhost:4321';
-  const query = `pedido=${pedidoId}&proveedor=mercadopago`;
+export async function crearPago({
+  pedidoId,
+  monto,
+  token,
+  paymentMethodId,
+  installments = 1,
+  issuerId,
+  payerEmail,
+  descripcion,
+}) {
+  // Idempotencia: la clave se deriva del pedido + token de tarjeta, que es
+  // de un solo uso. Si el navegador reintenta el MISMO intento (timeout sin
+  // respuesta clara), Mercado Pago devuelve el pago ya creado en vez de
+  // generar DOS cobros por el mismo pedido.
+  const idempotencyKey = createHash('sha256')
+    .update(`${pedidoId}:${token}`)
+    .digest('hex');
 
-  // Mercado Pago exige HTTPS para activar auto_return (te regresa solo al
-  // terminar). En desarrollo local (http://localhost) se deja vacio: el
-  // cliente vuelve con un boton y el estado real se consulta por
-  // external_reference al llegar a /pago/resultado.
-  const autoReturn = appUrl.startsWith('https://') ? 'approved' : '';
-
-  const preferencia = await apiMercadoPago('/checkout/preferences', {
+  const pago = await apiMercadoPago('/v1/payments', {
     metodo: 'POST',
+    encabezados: { 'X-Idempotency-Key': idempotencyKey },
     cuerpo: {
-      items: items.map((r) => ({
-        id: String(r.productoId),
-        title: r.nombre,
-        quantity: r.cantidad,
-        unit_price: Math.round(Number(r.precioUnitario)),
-        currency_id: 'MXN',
-      })),
+      transaction_amount: Number(Number(monto).toFixed(2)),
+      description: descripcion || `Pedido #${pedidoId} - NexoPlay`,
       external_reference: String(pedidoId),
-      auto_return: autoReturn,
-      back_urls: {
-        success: `${appUrl}/pago/resultado?proveedor=mercadopago&${query}`,
-        pending: `${appUrl}/pago/resultado?proveedor=mercadopago&estado=pending&${query}`,
-        failure: `${appUrl}/pago/resultado?proveedor=mercadopago&estado=failure&${query}`,
+      installments: Number(installments) || 1,
+      payment_method_id: paymentMethodId,
+      issuer_id: issuerId ? Number(issuerId) : undefined,
+      token,
+      payer: {
+        email: payerEmail,
       },
+      metadata: { pedido_id: String(pedidoId) },
     },
   });
 
   return {
-    id: preferencia.id,
-    url: preferencia.sandbox_init_point || preferencia.init_point,
+    estado: pago.status,
+    idPago: pago.id,
+    statusDetail: pago.status_detail,
   };
 }
 

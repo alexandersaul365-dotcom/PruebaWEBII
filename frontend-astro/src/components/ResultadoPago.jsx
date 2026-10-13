@@ -8,10 +8,12 @@ import { IconoAlerta, IconoCheck, IconoReloj } from './Iconos.jsx';
 /**
  * Pantalla /pago/resultado?pedido=N&proveedor=...
  *
- * Al volver de la pasarela consulta el estado REAL del cobro contra la API de
- * Mercado Pago / PayPal (los webhooks no llegan a un localhost en desarrollo).
- * Si el pago quedó APROBADO se vacía el carrito (reservado al crear el
- * pedido) y se muestra el pedido confirmado.
+ * Destino tras pagar. Con Mercado Pago (Checkout API) se llega aquí después
+ * de procesar la tarjeta con el brick; con PayPal, al volver de su sitio. En
+ * ambos casos consulta el estado REAL del cobro contra la API de la pasarela
+ * (los webhooks no llegan a un localhost en desarrollo) y, si quedó PENDIENTE,
+ * reintenta unos segundos. Si el pago queda APROBADO se vacía el carrito
+ * (reservado al crear el pedido) y se muestra el pedido confirmado.
  */
 export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
   const [estado, setEstado] = useState('VIENDO'); // 'VIENDO' | 'OK' | 'ERROR' | 'ESPERA'

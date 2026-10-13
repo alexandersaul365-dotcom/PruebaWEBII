@@ -3,10 +3,7 @@ import { requerirAdmin, requerirPanel, requerirUsuario } from './auth/context.js
 import { firmarToken } from './auth/jwt.js';
 import { verificarIdTokenGoogle, buscarOCrearUsuarioGoogle } from './auth/google.js';
 import { crearHash, verificarPassword } from './auth/password.js';
-import {
-  crearPreferencia as crearPreferenciaMercadoPago,
-  consultarPagoPorReferencia,
-} from './pagos/mercadopago.js';
+import { crearPago as crearPagoMercadoPago, consultarPagoPorReferencia } from './pagos/mercadopago.js';
 import { crearOrden as crearOrdenPayPal, capturarOrden, consultarOrden } from './pagos/paypal.js';
 import { marcarPagoAprobado, marcarPagoCancelado, marcarPagoFallido, devolverStock } from './pagos/estado-pedido.js';
 
@@ -47,20 +44,6 @@ async function pedidoAutorizado(id, usuario) {
     throw new Error('Este pedido no te pertenece.');
   }
   return pedido;
-}
-
-/** Renglones de un pedido con los datos del producto (para la pasarela). */
-async function renglonesConProducto(pedidoId) {
-  const renglones = await query(
-    `SELECT dp.producto_id AS "productoId", dp.cantidad, dp.precio_unitario AS "precioUnitario",
-            p.nombre
-       FROM detalle_pedido dp
-       JOIN productos p ON p.id = dp.producto_id
-      WHERE dp.pedido_id = $1
-      ORDER BY dp.id`,
-    [pedidoId]
-  );
-  return renglones;
 }
 
 export const resolvers = {
@@ -304,7 +287,7 @@ export const resolvers = {
     },
 
     // --- Pasarelas de pago ----------------------------------------------
-    iniciarPagoMercadoPago: async (_, { pedidoId }, context) => {
+    procesarPagoMercadoPago: async (_, { pedidoId, datos }, context) => {
       const pedido = await pedidoAutorizado(pedidoId, requerirUsuario(context));
       if (pedido.status === 'CANCELLED') {
         throw new Error('Un pedido cancelado no se puede pagar.');
@@ -313,23 +296,41 @@ export const resolvers = {
         throw new Error('Este pedido ya esta pagado.');
       }
 
-      const renglones = await renglonesConProducto(pedidoId);
-      const preferencia = await crearPreferenciaMercadoPago({
+      // Checkout API (Checkout Transparente): el navegador ya tokenizo la
+      // tarjeta con la Public Key; aqui se ejecuta el cobro real.
+      const resultado = await crearPagoMercadoPago({
         pedidoId,
-        titulo: `Pedido #${pedidoId} - NexoPlay`,
-        total: pedido.total,
-        items: renglones,
+        monto: pedido.total,
+        token: datos.token,
+        paymentMethodId: datos.paymentMethodId,
+        installments: datos.installments,
+        issuerId: datos.issuerId,
+        payerEmail: datos.payerEmail,
+        descripcion: `Pedido #${pedidoId} - NexoPlay`,
       });
 
+      // Se guarda el metodo y el id del cobro para poder consultarlo despues
+      // (verificarPago lo usa por external_reference, no por referencia_pago).
       await queryOne(
         `UPDATE pedidos
-            SET metodo_pago = COALESCE(metodo_pago, 'MERCADO_PAGO'),
-                referencia_pago = $2
+            SET metodo_pago = 'MERCADO_PAGO',
+                id_pago = $2
           WHERE id = $1`,
-        [pedidoId, preferencia.id]
+        [pedidoId, resultado.idPago ? String(resultado.idPago) : null]
       );
 
-      return { id: preferencia.id, url: preferencia.url };
+      if (resultado.estado === 'approved') {
+        await marcarPagoAprobado(pedidoId, {
+          metodoPago: 'MERCADO_PAGO',
+          idPago: String(resultado.idPago),
+        });
+      } else if (resultado.estado === 'rejected' || resultado.estado === 'cancelled') {
+        await marcarPagoFallido(pedidoId);
+      }
+      // pending | in_process: se deja PENDIENTE y se confirma al volver a
+      // /pago/resultado via verificarPago.
+
+      return queryOne('SELECT * FROM pedidos WHERE id = $1', [pedidoId]);
     },
 
     iniciarPagoPayPal: async (_, { pedidoId }, context) => {
