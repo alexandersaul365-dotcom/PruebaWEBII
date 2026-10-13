@@ -3,6 +3,7 @@ import { useStore } from '@nanostores/react';
 import { $carrito, cambiarCantidad, quitarDelCarrito, vaciarCarrito } from '../stores/carrito.js';
 import CantidadSelector from './CantidadSelector.jsx';
 import PagoMercadoPago from './PagoMercadoPago.jsx';
+import PagoOxxo from './PagoOxxo.jsx';
 import { $sesion } from '../stores/sesion.js';
 import { graphqlRequest, MUTATIONS, QUERIES } from '../lib/graphql.js';
 import { formatoMoneda } from '../lib/formatos.js';
@@ -11,8 +12,8 @@ import { formatoMoneda } from '../lib/formatos.js';
  * Isla de la página /carrito y de la reanudación de pago.
  *
  * Flujo normal: se crea el pedido (envío PENDING / cobro PENDIENTE), se
- * elige método (Mercado Pago o PayPal) y se redirige a la pasarela; el
- * cobro real se confirma en /pago/resultado.
+ * elige método (Mercado Pago con tarjeta, OXXO en efectivo o PayPal) y se
+ * confirma el cobro en /pago/resultado.
  *
  * Reanudación: al llegar con ?pagar=<id> (desde Mis Órdenes, solo si el
  * cobro sigue PENDIENTE) se consulta el pedido por API —el proxy adjunta la
@@ -56,6 +57,11 @@ export default function CarritoCheckout() {
             return;
           }
           setPedido(p);
+          // Un cobro OXXO pendiente ya tiene ficha: se reabre directo en vez
+          // de ofrecer de nuevo los métodos (evita emitir un ticket nuevo).
+          if (p.metodoPago === 'OXXO' && p.ticketUrl) {
+            setMetodoElegido('OXXO');
+          }
         })
         .catch((err) => {
           setPagarError(
@@ -182,13 +188,34 @@ export default function CarritoCheckout() {
     return (
       <div className="checkout-metodo">
         <span className="checkout-metodo__eyebrow">Pago pendiente</span>
-        <h2>{metodoElegido === 'MERCADO_PAGO' ? 'Paga con tarjeta' : 'Elige cómo pagar'}</h2>
+        <h2>
+          {metodoElegido === 'MERCADO_PAGO'
+            ? 'Paga con tarjeta'
+            : metodoElegido === 'OXXO'
+              ? 'Paga en efectivo en OXXO'
+              : 'Elige cómo pagar'}
+        </h2>
 
         {metodoElegido === 'MERCADO_PAGO' ? (
           <PagoMercadoPago
             pedidoId={pedido.id}
             total={pedido.total}
             payerEmail={sesion?.email}
+            onVolver={() => {
+              setPagarError(null);
+              setMetodoElegido(null);
+            }}
+          />
+        ) : metodoElegido === 'OXXO' ? (
+          <PagoOxxo
+            pedidoId={pedido.id}
+            total={pedido.total}
+            payerEmail={sesion?.email}
+            ticket={
+              pedido.metodoPago === 'OXXO' && pedido.ticketUrl
+                ? { url: pedido.ticketUrl, referencia: pedido.referenciaPago }
+                : null
+            }
             onVolver={() => {
               setPagarError(null);
               setMetodoElegido(null);
@@ -229,6 +256,21 @@ export default function CarritoCheckout() {
                 </span>
                 <span className="tarjeta-pago__flecha">→</span>
               </button>
+              <button
+                className="tarjeta-pago"
+                onClick={() => {
+                  setPagarError(null);
+                  setMetodoElegido('OXXO');
+                }}
+                disabled={procesando}
+              >
+                <span className="tarjeta-pago__logo tarjeta-pago__logo--oxxo">OXXO</span>
+                <span className="tarjeta-pago__texto">
+                  <strong>OXXO</strong>
+                  <span>Paga en efectivo en tienda con una ficha.</span>
+                </span>
+                <span className="tarjeta-pago__flecha">→</span>
+              </button>
             </div>
 
             {pagarError && <p className="checkout-metodo__error">{pagarError}</p>}
@@ -266,6 +308,7 @@ export default function CarritoCheckout() {
           }
           .tarjeta-pago__logo--mp { background: #00b1ea; }
           .tarjeta-pago__logo--pp { background: #ffc439; color: #003087; }
+          .tarjeta-pago__logo--oxxo { background: #e60028; font-size: 11px; letter-spacing: 0.02em; }
           .tarjeta-pago__texto { display: flex; flex-direction: column; gap: 2px; flex: 1; }
           .tarjeta-pago__texto strong { font-size: 15px; }
           .tarjeta-pago__texto span { color: var(--text-muted); font-size: 13px; }

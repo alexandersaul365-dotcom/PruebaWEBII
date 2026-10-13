@@ -3,7 +3,7 @@ import { requerirAdmin, requerirPanel, requerirUsuario } from './auth/context.js
 import { firmarToken } from './auth/jwt.js';
 import { verificarIdTokenGoogle, buscarOCrearUsuarioGoogle } from './auth/google.js';
 import { crearHash, verificarPassword } from './auth/password.js';
-import { crearPago as crearPagoMercadoPago, consultarPagoPorReferencia } from './pagos/mercadopago.js';
+import { crearPago as crearPagoMercadoPago, crearPagoOxxo, consultarPagoPorReferencia } from './pagos/mercadopago.js';
 import { crearOrden as crearOrdenPayPal, capturarOrden, consultarOrden } from './pagos/paypal.js';
 import { marcarPagoAprobado, marcarPagoCancelado, marcarPagoFallido, devolverStock } from './pagos/estado-pedido.js';
 
@@ -333,6 +333,51 @@ export const resolvers = {
       return queryOne('SELECT * FROM pedidos WHERE id = $1', [pedidoId]);
     },
 
+    // OXXO: pago en efectivo en tienda. Se genera una ficha (ticket) que el
+    // cliente paga en la tienda; el cobro queda PENDIENTE hasta que OXXO lo
+    // confirme (webhook en produccion, verificarPago en desarrollo).
+    procesarPagoOxxo: async (_, { pedidoId, datos }, context) => {
+      const pedido = await pedidoAutorizado(pedidoId, requerirUsuario(context));
+      if (pedido.status === 'CANCELLED') {
+        throw new Error('Un pedido cancelado no se puede pagar.');
+      }
+      if (pedido.estado_pago === 'APROBADO') {
+        throw new Error('Este pedido ya esta pagado.');
+      }
+
+      const ticket = await crearPagoOxxo({
+        pedidoId,
+        monto: pedido.total,
+        payerEmail: datos.payerEmail,
+        descripcion: `Pedido #${pedidoId} - NexoPlay`,
+      });
+
+      // Se guarda la ficha (ticket_url) para poder reabrir la MISMA si el
+      // cliente retoma el cobro; referencia_pago guarda la referencia OXXO.
+      await queryOne(
+        `UPDATE pedidos
+            SET metodo_pago = 'OXXO',
+                id_pago = $2,
+                referencia_pago = $3,
+                ticket_url = $4
+          WHERE id = $1`,
+        [
+          pedidoId,
+          ticket.idPago ? String(ticket.idPago) : null,
+          ticket.referencia ? String(ticket.referencia) : null,
+          ticket.urlTicket || null,
+        ]
+      );
+
+      return {
+        id: String(ticket.idPago),
+        estado: 'PENDIENTE',
+        url: ticket.urlTicket,
+        referencia: ticket.referencia ? String(ticket.referencia) : null,
+        expira: ticket.expira,
+      };
+    },
+
     iniciarPagoPayPal: async (_, { pedidoId }, context) => {
       const pedido = await pedidoAutorizado(pedidoId, requerirUsuario(context));
       if (pedido.status === 'CANCELLED') {
@@ -383,7 +428,8 @@ export const resolvers = {
         return queryOne('SELECT * FROM pedidos WHERE id = $1', [pedidoId]);
       }
 
-      if (pedido.metodo_pago === 'MERCADO_PAGO') {
+      // Mercado Pago y OXXO se consultan igual: por external_reference.
+      if (pedido.metodo_pago === 'MERCADO_PAGO' || pedido.metodo_pago === 'OXXO') {
         const resultado = await consultarPagoPorReferencia(String(pedidoId));
         if (resultado.estado === 'approved') {
           await marcarPagoAprobado(pedidoId, {
@@ -436,6 +482,7 @@ export const resolvers = {
     metodoPago: (pedido) => pedido.metodo_pago,
     referenciaPago: (pedido) => pedido.referencia_pago,
     idPago: (pedido) => pedido.id_pago,
+    ticketUrl: (pedido) => pedido.ticket_url,
     fechaPago: (pedido) => pedido.fecha_pago,
   },
 

@@ -101,6 +101,50 @@ export async function crearPago({
 }
 
 /**
+ * Genera un pago OXXO (pago en efectivo en tienda) con Checkout API.
+ * No cobra al instante: Mercado Pago devuelve un ticket en estado pending
+ * (pending_waiting_payment) con una ficha para pagar en la tienda. El cobro
+ * se acredita despues (webhook en produccion, verificarPago en desarrollo).
+ * Devuelve { estado, idPago, urlTicket, referencia, expira }.
+ */
+export async function crearPagoOxxo({
+  pedidoId,
+  monto,
+  payerEmail,
+  descripcion,
+}) {
+  // Idempotencia: un mismo pedido no debe generar DOS fichas si el navegador
+  // reintenta el mismo intento.
+  const idempotencyKey = createHash('sha256')
+    .update(`${pedidoId}:oxxo`)
+    .digest('hex');
+
+  const pago = await apiMercadoPago('/v1/payments', {
+    metodo: 'POST',
+    encabezados: { 'X-Idempotency-Key': idempotencyKey },
+    cuerpo: {
+      transaction_amount: Number(Number(monto).toFixed(2)),
+      description: descripcion || `Pedido #${pedidoId} - NexoPlay`,
+      external_reference: String(pedidoId),
+      payment_method_id: 'oxxo',
+      payer: {
+        email: payerEmail,
+      },
+      metadata: { pedido_id: String(pedidoId), payment_point: 'oxxo' },
+    },
+  });
+
+  return {
+    estado: pago.status,
+    idPago: pago.id,
+    // La ficha imprimible y la referencia que el cliente muestra en la tienda.
+    urlTicket: pago.transaction_details?.external_resource_url || null,
+    referencia: pago.transaction_details?.payment_method_reference_id || null,
+    expira: pago.date_of_expiration || null,
+  };
+}
+
+/**
  * Consulta el estado del pago por external_reference (= id de nuestro pedido).
  * Devuelve { estado, idPago } donde estado es el status de MP:
  * approved | rejected | pending | in_process | ...

@@ -25,6 +25,7 @@ export const typeDefs = `#graphql
   enum MetodoPago {
     MERCADO_PAGO
     PAYPAL
+    OXXO
   }
 
   """Estado del cobro, independiente del estado del pedido."""
@@ -90,6 +91,8 @@ export const typeDefs = `#graphql
     referenciaPago: String
     "Id del pago ya capturado en la pasarela (si aprobo)."
     idPago: String
+    "Ficha (external_resource_url) de un pago OXXO pendiente, si aplica."
+    ticketUrl: String
     "Fecha en que se acredito el pago."
     fechaPago: String
     "Usuario que realizo el pedido (resolver de campo)."
@@ -102,6 +105,21 @@ export const typeDefs = `#graphql
   type UrlPago {
     id: String!
     url: String
+  }
+
+  """Ficha de un pago OXXO: el cliente la lleva impresa a la tienda.
+  El cobro queda PENDIENTE hasta que OXXO confirma el pago."""
+  type TicketPago {
+    "Id del pago OXXO en Mercado Pago."
+    id: String!
+    "Estado del cobro en la pasarela (normalmente PENDIENTE)."
+    estado: EstadoPago!
+    "Ficha imprimible (external_resource_url) con el codigo de barras."
+    url: String
+    "Referencia que el cajero de OXXO debe capturar."
+    referencia: String
+    "Fecha limite para pagar la ficha."
+    expira: String
   }
 
   """Resultado de iniciar sesion: el usuario autenticado y un JWT propio.
@@ -163,6 +181,13 @@ export const typeDefs = `#graphql
     "Banco emisor, cuando el brick lo devuelve."
     issuerId: String
     "Correo del pagador (requerido por Mercado Pago)."
+    payerEmail: String!
+  }
+
+  """Datos del pago en efectivo en tienda OXXO (Checkout API de Mercado Pago).
+  Solo hace falta el correo del pagador; el monto y el pedido los toma el backend."""
+  input PagoOxxoInput {
+    "Correo del pagador (OXXO lo usa para la confirmacion del pago)."
     payerEmail: String!
   }
 
@@ -235,6 +260,9 @@ export const typeDefs = `#graphql
 
     "Procesa el pago de un pedido con Mercado Pago (Checkout API/Transparente)."
     procesarPagoMercadoPago(pedidoId: ID!, datos: PagoMercadoPagoInput!): Pedido!
+
+    "Genera una ficha de pago en efectivo OXXO para un pedido (Checkout API)."
+    procesarPagoOxxo(pedidoId: ID!, datos: PagoOxxoInput!): TicketPago!
 
     "Crea la orden de pago en PayPal para un pedido y devuelve la URL de aprobacion."
     iniciarPagoPayPal(pedidoId: ID!): UrlPago!

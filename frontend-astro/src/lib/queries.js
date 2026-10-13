@@ -117,7 +117,10 @@ export const QUERIES = {
         id
         total
         status
+        metodoPago
         estadoPago
+        referenciaPago
+        ticketUrl
         detalles { cantidad subtotal producto { id nombre } }
       }
     }
@@ -183,6 +186,17 @@ export const MUTATIONS = {
       }
     }
   `,
+  procesarPagoOxxo: `
+    mutation ProcesarPagoOxxo($pedidoId: ID!, $datos: PagoOxxoInput!) {
+      procesarPagoOxxo(pedidoId: $pedidoId, datos: $datos) {
+        id
+        estado
+        url
+        referencia
+        expira
+      }
+    }
+  `,
   iniciarPagoPayPal: `
     mutation IniciarPagoPayPal($pedidoId: ID!) {
       iniciarPagoPayPal(pedidoId: $pedidoId) { id url }
@@ -198,7 +212,7 @@ export const MUTATIONS = {
   verificarPago: `
     mutation VerificarPago($pedidoId: ID!) {
       verificarPago(pedidoId: $pedidoId) {
-        id status estadoPago fechaPago
+        id status estadoPago fechaPago metodoPago referenciaPago ticketUrl
       }
     }
   `,

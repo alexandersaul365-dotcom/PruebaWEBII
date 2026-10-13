@@ -68,11 +68,14 @@ CREATE TABLE pedidos (
   status          TEXT NOT NULL DEFAULT 'PENDING'
                   CHECK (status IN ('PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED')),
   -- Capa de cobros (practica "Metodos de cobro + Admin Dashboard")
-  metodo_pago     TEXT CHECK (metodo_pago IN ('MERCADO_PAGO', 'PAYPAL')),
+  metodo_pago     TEXT CHECK (metodo_pago IN ('MERCADO_PAGO', 'PAYPAL', 'OXXO')),
   estado_pago     TEXT NOT NULL DEFAULT 'PENDIENTE'
                   CHECK (estado_pago IN ('PENDIENTE', 'APROBADO', 'RECHAZADO', 'CANCELADO')),
   referencia_pago TEXT,
   id_pago         TEXT,
+  -- Ficha (external_resource_url) de un pago OXXO; permite reabrir la misma
+  -- ficha mientras el cobro sigue pendiente.
+  ticket_url      TEXT,
   fecha_pago      TIMESTAMPTZ
 );
 

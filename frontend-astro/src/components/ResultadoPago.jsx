@@ -21,7 +21,14 @@ export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
   const [error, setError] = useState(null);
 
   const proveedorTitulo = useMemo(
-    () => (proveedor === 'paypal' ? 'PayPal' : proveedor === 'mercadopago' ? 'Mercado Pago' : 'pasarela'),
+    () =>
+      proveedor === 'paypal'
+        ? 'PayPal'
+        : proveedor === 'oxxo'
+          ? 'OXXO'
+          : proveedor === 'mercadopago'
+            ? 'Mercado Pago'
+            : 'pasarela',
     [proveedor]
   );
 
@@ -61,6 +68,10 @@ export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
         if (esAprobado) {
           vaciarCarrito();
           setEstado('OK');
+        } else if (proveedor === 'oxxo' && (p.estadoPago === 'PENDIENTE' || p.estadoPago == null)) {
+          // OXXO no se cobra al instante: queda PENDIENTE hasta que el cliente
+          // paga la ficha en la tienda. No tiene sentido reintentar en bucle.
+          setEstado('TIENDA');
         } else if (p.estadoPago === 'PENDIENTE' || p.estadoPago === null || p.estadoPago === undefined) {
           // MP a veces tarda unos segundos en reflejar el pago.
           setTimeout(() => {
@@ -96,6 +107,9 @@ export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
         if (r.verificarPago.estadoPago === 'APROBADO') {
           vaciarCarrito();
           setEstado('OK');
+        } else if (proveedor === 'oxxo') {
+          // Sigue pendiente en tienda: se mantiene la ficha a la vista.
+          setEstado('TIENDA');
         } else {
           setEstado('ERROR');
           setError('El cobro aún no aparece como aprobado.');
@@ -112,6 +126,45 @@ export default function ResultadoPago({ pedido, proveedor, estadoQuery }) {
         </span>
         <h1>Verificando tu pago…</h1>
         <p>Estamos confirmando el cobro con la pasarela. Un momento por favor.</p>
+        <style>{ESTILOS}</style>
+      </div>
+    );
+  }
+
+  if (estado === 'TIENDA') {
+    return (
+      <div className="resultado">
+        <span className="resultado__icono resultado__icono--espera">
+          <IconoReloj size={40} />
+        </span>
+        <h1>Ficha OXXO pendiente de pago</h1>
+        <p>
+          Tu pedido <strong>#{pedido}</strong> quedó apartado. Paga la ficha en
+          cualquier tienda OXXO; en cuanto se acredite lo verás confirmado aquí.
+        </p>
+        {info?.referenciaPago && (
+          <p className="resultado__meta">
+            Referencia OXXO: <strong>{info.referenciaPago}</strong>
+          </p>
+        )}
+        <div className="resultado__acciones">
+          {info?.ticketUrl && (
+            <a
+              href={info.ticketUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="boton boton--primario"
+            >
+              Abrir / imprimir ficha
+            </a>
+          )}
+          <button className="boton boton--secundario" onClick={recalcular}>
+            Ya pagué · Verificar
+          </button>
+          <a href="/mis-ordenes" className="boton boton--texto">
+            Ver mis órdenes
+          </a>
+        </div>
         <style>{ESTILOS}</style>
       </div>
     );
