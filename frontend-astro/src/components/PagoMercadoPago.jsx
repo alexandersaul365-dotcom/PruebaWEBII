@@ -3,6 +3,7 @@ import { graphqlRequest, MUTATIONS } from '../lib/graphql.js';
 import { formatoMoneda } from '../lib/formatos.js';
 
 const PUBLIC_KEY = import.meta.env.PUBLIC_MP_PUBLIC_KEY;
+const ID_CONTENEDOR = 'mp-card-brick';
 
 // El SDK de MercadoPago.js v2 se carga una sola vez por pagina.
 let promesaSdk;
@@ -60,7 +61,9 @@ export default function PagoMercadoPago({ pedidoId, total, payerEmail, onVolver 
         const mp = new MercadoPago(PUBLIC_KEY, { locale: 'es-MX' });
         const bricksBuilder = mp.bricks();
 
-        controller = await bricksBuilder.create('cardPayment', contenedorRef.current, {
+        // El brick pide el ID (string) del contenedor, no el elemento DOM:
+        // pasarle el elemento provoca "e.startsWith is not a function".
+        controller = await bricksBuilder.create('cardPayment', ID_CONTENEDOR, {
           initialization: {
             amount: Number(total),
             payer: { email: payerEmail || '' },
@@ -139,7 +142,7 @@ export default function PagoMercadoPago({ pedidoId, total, payerEmail, onVolver 
       {procesando && <p className="mp-brick__aviso">Procesando el pago…</p>}
       {error && <p className="mp-brick__error">{error}</p>}
 
-      <div ref={contenedorRef} className="mp-brick__contenedor" />
+      <div id={ID_CONTENEDOR} ref={contenedorRef} className="mp-brick__contenedor" />
 
       {onVolver && (
         <button type="button" className="boton boton--texto" onClick={onVolver} disabled={procesando}>
