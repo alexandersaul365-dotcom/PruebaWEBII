@@ -14,7 +14,7 @@
 // Webhook: Mercado Pago firma cada notificacion con el header x-signature
 // (algoritmo HMAC-SHA256). En sandbox local los webhooks no llegan (no hay
 // URL publica), asi que la verificacion principal es la consulta por API.
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 
 const MERCADOPAGO_URL = 'https://api.mercadopago.com';
 
@@ -188,6 +188,6 @@ export function validarFirmaWebhook({ xSignature, xRequestId, dataId }) {
   if (!ts || !firmaRecibida) return false;
 
   const mensaje = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
-  const firmaCalculada = createHash('sha256').update(mensaje).digest('hex');
+  const firmaCalculada = createHmac('sha256', secreto).update(mensaje).digest('hex');
   return firmaCalculada === firmaRecibida;
 }
