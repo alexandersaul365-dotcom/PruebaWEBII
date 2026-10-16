@@ -79,32 +79,59 @@ export async function crearPago({
     .update(`${pedidoId}:${token}`)
     .digest('hex');
 
-  const pago = await apiMercadoPago('/v1/payments', {
+  // Cobro con la API de Orders (POST /v1/orders), igual que OXXO: es la que
+  // documenta Mercado Pago para Checkout API y la que acepta el Access Token
+  // de prueba (/v1/payments respondia 401 "live credentials").
+  const total = Number(Number(monto).toFixed(2)).toFixed(2);
+  const metodoId = String(paymentMethodId || '');
+  const orden = await apiMercadoPago('/v1/orders', {
     metodo: 'POST',
     encabezados: { 'X-Idempotency-Key': idempotencyKey },
     cuerpo: {
-      transaction_amount: Number(Number(monto).toFixed(2)),
-      description: descripcion || `Pedido #${pedidoId} - NexoPlay`,
+      type: 'online',
+      processing_mode: 'automatic',
+      total_amount: total,
       external_reference: String(pedidoId),
-      installments: Number(installments) || 1,
-      payment_method_id: paymentMethodId,
-      issuer_id: issuerId ? Number(issuerId) : undefined,
-      token,
       payer: {
-        // En sandbox, Mercado Pago solo acepta compradores de prueba. Si se
-        // define MP_TEST_PAYER_EMAIL (correo de un comprador de prueba), se
-        // usa en lugar del correo real de la sesion. En produccion se deja
-        // sin definir.
+        // En sandbox MP solo acepta compradores de prueba: MP_TEST_PAYER_EMAIL
+        // (opcional) sustituye el correo real de la sesion. Vacio en produccion.
         email: process.env.MP_TEST_PAYER_EMAIL || payerEmail,
       },
-      metadata: { pedido_id: String(pedidoId) },
+      transactions: {
+        payments: [
+          {
+            amount: total,
+            payment_method: {
+              id: metodoId,
+              // Las tarjetas de debito de MP llevan id "deb..." (debvisa, debmaster).
+              type: /^deb/i.test(metodoId) ? 'debit_card' : 'credit_card',
+              token,
+              installments: Number(installments) || 1,
+            },
+          },
+        ],
+      },
     },
   });
 
+  const pago = orden?.transactions?.payments?.[0] || {};
+  const estadoOrden = String(pago.status || orden.status || '').toLowerCase();
+
+  // Se traduce al vocabulario de /v1/payments que ya usa el resolver:
+  // approved | rejected | pending | in_process.
+  let estado = 'pending';
+  if (estadoOrden === 'processed' || orden.status_detail === 'accredited') {
+    estado = 'approved';
+  } else if (['failed', 'canceled', 'cancelled', 'expired', 'rejected'].includes(estadoOrden)) {
+    estado = 'rejected';
+  } else if (estadoOrden === 'processing') {
+    estado = 'in_process';
+  }
+
   return {
-    estado: pago.status,
-    idPago: pago.id,
-    statusDetail: pago.status_detail,
+    estado,
+    idPago: pago.id || orden.id,
+    statusDetail: pago.status_detail || orden.status_detail,
   };
 }
 
