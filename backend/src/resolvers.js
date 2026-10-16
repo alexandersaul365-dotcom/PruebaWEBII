@@ -3,7 +3,7 @@ import { requerirAdmin, requerirPanel, requerirUsuario } from './auth/context.js
 import { firmarToken } from './auth/jwt.js';
 import { verificarIdTokenGoogle, buscarOCrearUsuarioGoogle } from './auth/google.js';
 import { crearHash, verificarPassword } from './auth/password.js';
-import { crearPago as crearPagoMercadoPago, crearPagoOxxo, consultarPagoPorReferencia } from './pagos/mercadopago.js';
+import { crearPago as crearPagoMercadoPago, crearPagoOxxo, consultarPagoPorReferencia, mensajeEstadoMercadoPago } from './pagos/mercadopago.js';
 import { crearOrden as crearOrdenPayPal, capturarOrden, consultarOrden } from './pagos/paypal.js';
 import { marcarPagoAprobado, marcarPagoCancelado, marcarPagoFallido, devolverStock } from './pagos/estado-pedido.js';
 
@@ -298,16 +298,26 @@ export const resolvers = {
 
       // Checkout API (Checkout Transparente): el navegador ya tokenizo la
       // tarjeta con la Public Key; aqui se ejecuta el cobro real.
-      const resultado = await crearPagoMercadoPago({
-        pedidoId,
-        monto: pedido.total,
-        token: datos.token,
-        paymentMethodId: datos.paymentMethodId,
-        installments: datos.installments,
-        issuerId: datos.issuerId,
-        payerEmail: datos.payerEmail,
-        descripcion: `Pedido #${pedidoId} - NexoPlay`,
-      });
+      let resultado;
+      try {
+        resultado = await crearPagoMercadoPago({
+          pedidoId,
+          monto: pedido.total,
+          token: datos.token,
+          paymentMethodId: datos.paymentMethodId,
+          installments: datos.installments,
+          issuerId: datos.issuerId,
+          payerEmail: datos.payerEmail,
+          descripcion: `Pedido #${pedidoId} - NexoPlay`,
+        });
+      } catch (err) {
+        // Si la API rechazo la operacion (4xx/402) y trae un status_detail
+        // conocido, mostramos el mensaje amigable en vez del error tecnico.
+        if (err.statusDetail) {
+          throw new Error(mensajeEstadoMercadoPago(err.statusDetail));
+        }
+        throw err;
+      }
 
       // Se guarda el metodo y el id del cobro para poder consultarlo despues
       // (verificarPago lo usa por external_reference, no por referencia_pago).
@@ -325,7 +335,11 @@ export const resolvers = {
           idPago: String(resultado.idPago),
         });
       } else if (resultado.estado === 'rejected' || resultado.estado === 'cancelled') {
+        // El cobro quedo registrado como fallido en la BD y ademas se le
+        // informa al cliente el motivo exacto (status_detail) para que pueda
+        // reintentar sin salir del formulario de tarjeta.
         await marcarPagoFallido(pedidoId);
+        throw new Error(mensajeEstadoMercadoPago(resultado.statusDetail));
       }
       // pending | in_process: se deja PENDIENTE y se confirma al volver a
       // /pago/resultado via verificarPago.
