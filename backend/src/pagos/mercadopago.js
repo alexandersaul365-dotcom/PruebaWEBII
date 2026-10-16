@@ -44,9 +44,13 @@ async function apiMercadoPago(ruta, { metodo = 'GET', cuerpo, encabezados = {} }
     datos = { error: texto };
   }
   if (!respuesta.ok) {
-    throw new Error(
-      `Mercado Pago respondio ${respuesta.status}: ${datos?.message || datos?.error || 'error desconocido'}`
-    );
+    const detalleOrders = Array.isArray(datos?.errors)
+      ? datos.errors.map((e) => [e.code, e.message].filter(Boolean).join(': ')).join('; ')
+      : '';
+    const detalle =
+      datos?.message || datos?.error || detalleOrders || (datos ? JSON.stringify(datos) : '') || 'error desconocido';
+    console.error(`[mercadopago] ${metodo} ${ruta} -> ${respuesta.status}`, texto);
+    throw new Error(`Mercado Pago respondio ${respuesta.status}: ${detalle}`);
   }
   return datos;
 }
@@ -120,11 +124,14 @@ export async function crearPagoOxxo({
 }) {
   // Idempotencia: un mismo pedido no debe generar DOS fichas si el navegador
   // reintenta el mismo intento.
+  const total = Number(monto).toFixed(2);
+  // La clave depende del contenido (pedido + monto + correo): el mismo intento
+  // repetido devuelve la misma ficha, pero cambiar el correo genera otra
+  // peticion distinta y no choca (409) con la anterior.
   const idempotencyKey = createHash('sha256')
-    .update(`${pedidoId}:oxxo`)
+    .update(`${pedidoId}:oxxo:${total}:${String(payerEmail).toLowerCase()}`)
     .digest('hex');
 
-  const total = Number(monto).toFixed(2);
   const nombre = (payerEmail || 'cliente').split('@')[0].slice(0, 30) || 'Cliente';
 
   let orden = await apiMercadoPago('/v1/orders', {
