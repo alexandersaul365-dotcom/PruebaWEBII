@@ -91,7 +91,11 @@ export async function crearPago({
       issuer_id: issuerId ? Number(issuerId) : undefined,
       token,
       payer: {
-        email: payerEmail,
+        // En sandbox, Mercado Pago solo acepta compradores de prueba. Si se
+        // define MP_TEST_PAYER_EMAIL (correo de un comprador de prueba), se
+        // usa en lugar del correo real de la sesion. En produccion se deja
+        // sin definir.
+        email: process.env.MP_TEST_PAYER_EMAIL || payerEmail,
       },
       metadata: { pedido_id: String(pedidoId) },
     },
