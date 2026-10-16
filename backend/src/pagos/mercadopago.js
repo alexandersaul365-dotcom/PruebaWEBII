@@ -26,6 +26,34 @@ function tokenAcceso() {
   return token;
 }
 
+// Motivos de rechazo de Mercado Pago (status_detail), en espanol. La API de
+// Orders los manda dentro de errors[].details o del pago; /v1/payments los
+// manda con prefijo "cc_rejected_". Se buscan en el texto crudo de la
+// respuesta para no depender de la forma exacta del JSON.
+const MOTIVOS_RECHAZO = [
+  ['insufficient_amount', 'Fondos insuficientes en la tarjeta.'],
+  ['bad_filled_security_code', 'El código de seguridad es inválido.'],
+  ['bad_filled_date', 'La fecha de vencimiento es inválida.'],
+  ['bad_filled_card_number', 'El número de tarjeta es inválido.'],
+  ['bad_filled_other', 'Revisa los datos de la tarjeta.'],
+  ['call_for_authorize', 'El banco requiere que autorices el pago (llama a tu banco).'],
+  ['required_call_for_authorize', 'El banco requiere que autorices el pago (llama a tu banco).'],
+  ['card_disabled', 'La tarjeta está inactiva; actívala con tu banco.'],
+  ['duplicated_payment', 'Ya existe un pago igual reciente (pago duplicado).'],
+  ['high_risk', 'El pago fue rechazado por riesgo de fraude.'],
+  ['max_attempts', 'Se superó el número máximo de intentos con esta tarjeta.'],
+  ['invalid_installments', 'El número de cuotas elegido no es válido para esta tarjeta.'],
+  ['blacklist', 'La tarjeta tiene restricciones y no se puede usar.'],
+  ['other_reason', 'El banco rechazó el pago por un error general.'],
+];
+
+/** Devuelve el motivo de rechazo en espanol si aparece en `texto`, o null. */
+function motivoRechazo(texto) {
+  const crudo = String(texto || '').toLowerCase();
+  const hallado = MOTIVOS_RECHAZO.find(([codigo]) => crudo.includes(codigo));
+  return hallado ? hallado[1] : null;
+}
+
 async function apiMercadoPago(ruta, { metodo = 'GET', cuerpo, encabezados = {} } = {}) {
   const respuesta = await fetch(`${MERCADOPAGO_URL}${ruta}`, {
     method: metodo,
@@ -50,6 +78,10 @@ async function apiMercadoPago(ruta, { metodo = 'GET', cuerpo, encabezados = {} }
     const detalle =
       datos?.message || datos?.error || detalleOrders || (datos ? JSON.stringify(datos) : '') || 'error desconocido';
     console.error(`[mercadopago] ${metodo} ${ruta} -> ${respuesta.status}`, texto);
+    const motivo = motivoRechazo(texto);
+    if (motivo) {
+      throw new Error(`Pago rechazado: ${motivo}`);
+    }
     throw new Error(`Mercado Pago respondio ${respuesta.status}: ${detalle}`);
   }
   return datos;
@@ -126,6 +158,14 @@ export async function crearPago({
     estado = 'rejected';
   } else if (estadoOrden === 'processing') {
     estado = 'in_process';
+  }
+
+  if (estado === 'rejected') {
+    const detalleRechazo = pago.status_detail || orden.status_detail || '';
+    const motivo = motivoRechazo(detalleRechazo);
+    throw new Error(
+      `Pago rechazado: ${motivo || detalleRechazo || 'Mercado Pago no autorizó el cobro.'}`
+    );
   }
 
   return {
