@@ -161,7 +161,10 @@ export default function CarritoCheckout() {
       </div>
     );
   }
-  if (pagarError) {
+  // Solo los errores de "reanudar pedido" son objetos ({ estado, mensaje }) y
+  // reemplazan la pantalla. Los errores al iniciar un pago (PayPal, tarjeta,
+  // OXXO) son texto y se muestran en línea, junto al método de pago.
+  if (pagarError && typeof pagarError === 'object') {
     return (
       <div className="carrito-aviso">
         <p className="carrito-aviso__error">No se pudo recuperar el pedido: {pagarError.mensaje}</p>
