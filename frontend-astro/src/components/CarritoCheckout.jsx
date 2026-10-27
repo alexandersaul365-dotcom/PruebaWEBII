@@ -75,7 +75,12 @@ export default function CarritoCheckout() {
     return undefined;
   }, []);
 
-  const total = carrito.reduce((acc, r) => acc + r.precio * r.cantidad, 0);
+  // Los precios del catálogo son netos: el IVA se agrega y se desglosa.
+  // (La tasa viaja por pedido; 16% es la general en México.)
+  const TASA_IVA = 0.16;
+  const subtotal = carrito.reduce((acc, r) => acc + r.precio * r.cantidad, 0);
+  const iva = Math.round(subtotal * TASA_IVA * 100) / 100;
+  const total = Math.round((subtotal + iva) * 100) / 100;
 
   const renglonesInvalidos = carrito.filter(
     (r) => Number(r.stock) > 0 && (r.cantidad || 0) > Number(r.stock)
@@ -97,6 +102,8 @@ export default function CarritoCheckout() {
         MUTATIONS.crearPedido,
         {
           d: {
+            tasaImpuesto: TASA_IVA,
+            costoEnvio: 0,
             detalles: carrito.map((r) => ({ productoId: r.productoId, cantidad: r.cantidad })),
           },
         }
@@ -161,7 +168,10 @@ export default function CarritoCheckout() {
       </div>
     );
   }
-  if (pagarError) {
+  // Solo los errores de "reanudar pedido" son objetos ({ estado, mensaje }) y
+  // reemplazan la pantalla. Los errores al iniciar un pago (PayPal, tarjeta,
+  // OXXO) son texto y se muestran en línea, junto al método de pago.
+  if (pagarError && typeof pagarError === 'object') {
     return (
       <div className="carrito-aviso">
         <p className="carrito-aviso__error">No se pudo recuperar el pedido: {pagarError.mensaje}</p>
@@ -379,7 +389,11 @@ export default function CarritoCheckout() {
         <h3>Resumen</h3>
         <div className="checkout__renglon">
           <span>Subtotal</span>
-          <span>{formatoMoneda(total)}</span>
+          <span>{formatoMoneda(subtotal)}</span>
+        </div>
+        <div className="checkout__renglon">
+          <span>IVA (16%)</span>
+          <span>{formatoMoneda(iva)}</span>
         </div>
         <div className="checkout__renglon">
           <span>Envío</span>

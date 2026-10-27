@@ -4,7 +4,16 @@ import { QUERIES, MUTATIONS } from '../lib/queries.js';
 import { formatoMoneda } from '../lib/formatos.js';
 import { IconoCerrar, IconoEditar, IconoEliminar, IconoMas } from './Iconos.jsx';
 
-const FORM_VACIO = { nombre: '', precio: '', stock: '', imagen: '', categoriaId: '' };
+const FORM_VACIO = {
+  nombre: '',
+  precio: '',
+  stock: '',
+  imagen: '',
+  categoriaId: '',
+  costoAdquisicion: '0',
+  sku: '',
+  stockMinimo: '5',
+};
 
 function Esqueleto() {
   return (
@@ -62,6 +71,9 @@ export default function AdminProductos() {
       stock: String(p.stock),
       imagen: p.imagen || '',
       categoriaId: p.categoria?.id ? String(p.categoria.id) : '',
+      costoAdquisicion: String(p.costoAdquisicion ?? 0),
+      sku: p.sku || '',
+      stockMinimo: String(p.stockMinimo ?? 5),
     });
     setMensaje(null);
     setDrawer({ modo: 'editar', productoId: p.id });
@@ -85,6 +97,9 @@ export default function AdminProductos() {
         stock: Number(form.stock),
         imagen: form.imagen.trim() || null,
         categoriaId: form.categoriaId || null,
+        costoAdquisicion: Number(form.costoAdquisicion) || 0,
+        sku: form.sku.trim() || null,
+        stockMinimo: Number(form.stockMinimo) || 0,
       };
       if (esCrear) {
         await graphqlRequest(MUTATIONS.crearProducto, { datos });
@@ -104,14 +119,19 @@ export default function AdminProductos() {
   };
 
   const eliminar = async (p) => {
-    if (!window.confirm(`¿Eliminar "${p.nombre}"? Esta acción no se puede deshacer.`)) return;
+    if (
+      !window.confirm(
+        `¿Desactivar "${p.nombre}"? Dejará de mostrarse en la tienda; su historial de ventas e inventario se conserva.`
+      )
+    )
+      return;
     setGuardando(true);
     setError(null);
     try {
       await graphqlRequest(MUTATIONS.eliminarProducto, { id: String(p.id) });
       await cargar();
     } catch (err) {
-      setError(`No se pudo eliminar: ${err.message}`);
+      setError(`No se pudo desactivar: ${err.message}`);
     } finally {
       setGuardando(false);
     }
@@ -170,7 +190,16 @@ export default function AdminProductos() {
                 <td>{p.categoria?.nombre || '—'}</td>
                 <td style={{ fontWeight: 600 }}>{formatoMoneda(p.precio)}</td>
                 <td>
-                  <span className={`badge ${p.stock === 0 ? 'badge--bad' : p.stock <= 5 ? 'badge--pending' : 'badge--ok'}`}>
+                  <span
+                    className={`badge ${
+                      p.stock === 0
+                        ? 'badge--bad'
+                        : p.bajoMinimo
+                          ? 'badge--pending'
+                          : 'badge--ok'
+                    }`}
+                    title={`Umbral: ${p.stockMinimo}`}
+                  >
                     {p.stock}
                   </span>
                 </td>
@@ -191,7 +220,7 @@ export default function AdminProductos() {
                     type="button"
                     className="accion-icono"
                     title="Eliminar"
-                    aria-label={`Eliminar ${p.nombre}`}
+                    aria-label={`Desactivar ${p.nombre}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       eliminar(p);
@@ -260,6 +289,40 @@ export default function AdminProductos() {
                   />
                 </label>
               </div>
+
+              <div className="form-grid-2">
+                <label className="campo">
+                  <span>Costo de adquisición (MXN)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.costoAdquisicion}
+                    onChange={(e) => cambiarForm('costoAdquisicion', e.target.value)}
+                    placeholder="0.00"
+                  />
+                </label>
+                <label className="campo">
+                  <span>Umbral de stock bajo</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={form.stockMinimo}
+                    onChange={(e) => cambiarForm('stockMinimo', e.target.value)}
+                    placeholder="5"
+                  />
+                </label>
+              </div>
+
+              <label className="campo">
+                <span>SKU (opcional)</span>
+                <input
+                  value={form.sku}
+                  onChange={(e) => cambiarForm('sku', e.target.value)}
+                  placeholder="Ej. XBOX-CTRL-BLK"
+                />
+              </label>
 
               <label className="campo">
                 <span>Categoría</span>

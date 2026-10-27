@@ -202,3 +202,97 @@ export function IconoReloj({ size = 40, ...rest }) {
     </svg>
   );
 }
+// --- ERP ------------------------------------------------------------------
+export function IconoInventario({ size = 18, ...rest }) {
+  return (
+    <svg {...base} width={size} height={size} {...rest}>
+      <path d="M3 8l9-5 9 5v10l-9 5-9-5V8z" />
+      <path d="M3 8l9 5 9-5M12 13v10" />
+      <path d="M7.5 5.5l9 5" />
+    </svg>
+  );
+}
+
+export function IconoCompras({ size = 18, ...rest }) {
+  return (
+    <svg {...base} width={size} height={size} {...rest}>
+      <path d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.8a1 1 0 0 0 1-.8L20 8H6" />
+      <circle cx="9.5" cy="19.5" r="1.2" />
+      <circle cx="17.5" cy="19.5" r="1.2" />
+    </svg>
+  );
+}
+
+export function IconoVentas({ size = 18, ...rest }) {
+  return (
+    <svg {...base} width={size} height={size} {...rest}>
+      <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z" />
+      <path d="M9 8h6M9 12h4" />
+    </svg>
+  );
+}
+
+export function IconoFactura({ size = 18, ...rest }) {
+  return (
+    <svg {...base} width={size} height={size} {...rest}>
+      <path d="M7 3h7l4 4v14H7z" />
+      <path d="M14 3v4h4M10 12h5M10 16h5" />
+    </svg>
+  );
+}
+
+export function IconoEnvio({ size = 18, ...rest }) {
+  return (
+    <svg {...base} width={size} height={size} {...rest}>
+      <path d="M3 6h11v10H3zM14 9h4l3 3v4h-7" />
+      <circle cx="7" cy="18" r="1.6" />
+      <circle cx="17" cy="18" r="1.6" />
+    </svg>
+  );
+}
+
+export function IconoClientes({ size = 18, ...rest }) {
+  return (
+    <svg {...base} width={size} height={size} {...rest}>
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3 20v-1.2A5.8 5.8 0 0 1 8.8 13h.4a5.8 5.8 0 0 1 5.8 5.8V20" />
+      <path d="M16 5.2A3.2 3.2 0 0 1 16 11M18 13.4a5 5 0 0 1 3 4.6V20" />
+    </svg>
+  );
+}
+
+export function IconoProveedores({ size = 18, ...rest }) {
+  return (
+    <svg {...base} width={size} height={size} {...rest}>
+      <path d="M3 21V9l6-3v15M9 21V6l6 3v12M15 21v-8l6 3v5" />
+      <path d="M3 21h18M6 12h.01M6 16h.01M12 12h.01M12 16h.01M18 17h.01" />
+    </svg>
+  );
+}
+
+export function IconoReportes({ size = 18, ...rest }) {
+  return (
+    <svg {...base} width={size} height={size} {...rest}>
+      <path d="M4 20V4M4 20h16" />
+      <path d="M8 16v-5M12 16V7M16 16v-3M20 16V9" />
+    </svg>
+  );
+}
+
+export function IconoDescargar({ size = 18, ...rest }) {
+  return (
+    <svg {...base} width={size} height={size} {...rest}>
+      <path d="M12 3v12M7 10l5 5 5-5" />
+      <path d="M4 18v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" />
+    </svg>
+  );
+}
+
+export function IconoMasMenos({ size = 18, ...rest }) {
+  return (
+    <svg {...base} width={size} height={size} {...rest}>
+      <path d="M4 8h6M7 5v6M14 8h6M14 17h6" />
+      <path d="M9 17h.01" />
+    </svg>
+  );
+}

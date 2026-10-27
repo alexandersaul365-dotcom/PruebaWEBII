@@ -3,7 +3,21 @@ import '../styles/tokens.css';
 import '../styles/admin.css';
 import ThemeToggle from '../components/ThemeToggle.jsx';
 import { nombreRolEs } from '../lib/formatos.js';
-import { IconoOrdenes, IconoPanel, IconoProducto, IconoTienda } from '../components/Iconos.jsx';
+import {
+  IconoOrdenes,
+  IconoPanel,
+  IconoProducto,
+  IconoTienda,
+  IconoInventario,
+  IconoCompras,
+  IconoVentas,
+  IconoFactura,
+  IconoEnvio,
+  IconoClientes,
+  IconoProveedores,
+  IconoReportes,
+} from '../components/Iconos.jsx';
+import BadgeStockBajo from '../components/BadgeStockBajo.jsx';
 
 // Panel de administración (/admin/*). Ya lo protege el middleware: aquí ya
 // sabemos que Astro.locals.sesion.usuario existe y es ADMIN u OPERADOR.
@@ -11,10 +25,25 @@ const { title = 'Panel' } = Astro.props;
 const usuario = Astro.locals.sesion.usuario;
 const ruta = Astro.url.pathname;
 
+// Finanzas (ventas, facturación, reportes) es solo ADMIN. Proveedores se
+// consulta con ambos roles, pero solo ADMIN edita (lo valida el backend).
+const esAdmin = usuario.rol === 'ADMIN';
 const articulos = [
   { href: '/admin', etiqueta: 'Dashboard', Icono: IconoPanel },
   { href: '/admin/productos', etiqueta: 'Productos', Icono: IconoProducto },
+  { href: '/admin/inventario', etiqueta: 'Inventario', Icono: IconoInventario, badge: true },
+  { href: '/admin/compras', etiqueta: 'Compras', Icono: IconoCompras },
   { href: '/admin/ordenes', etiqueta: 'Órdenes', Icono: IconoOrdenes },
+  { href: '/admin/envios', etiqueta: 'Envíos', Icono: IconoEnvio },
+  ...(esAdmin
+    ? [
+        { href: '/admin/ventas', etiqueta: 'Ventas', Icono: IconoVentas },
+        { href: '/admin/facturacion', etiqueta: 'Facturación', Icono: IconoFactura },
+      ]
+    : []),
+  { href: '/admin/clientes', etiqueta: 'Clientes', Icono: IconoClientes },
+  { href: '/admin/proveedores', etiqueta: 'Proveedores', Icono: IconoProveedores },
+  ...(esAdmin ? [{ href: '/admin/reportes', etiqueta: 'Reportes', Icono: IconoReportes }] : []),
 ];
 
 const iniciales = (usuario.nombre || usuario.email || '?')
@@ -75,6 +104,7 @@ const iniciales = (usuario.nombre || usuario.email || '?')
             >
               <a.Icono size={20} />
               <span class="admin__enlace-lb">{a.etiqueta}</span>
+              {a.badge && <BadgeStockBajo client:load />}
             </a>
           ))}
         </nav>

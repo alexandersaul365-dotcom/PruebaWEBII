@@ -481,3 +481,398 @@
   .admin__usuario-fila { justify-content: center; }
   .admin__contenido-inner { padding: 20px 16px 40px; }
 }
+/* ==========================================================================
+   Módulos ERP (inventario, compras, ventas, facturación, envíos, clientes,
+   proveedores y reportes). Reutiliza los tokens y el lenguaje del panel.
+   ========================================================================== */
+
+/* Encabezado de página ----------------------------------------------------- */
+.panel-pagina {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.panel-pagina__cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+}
+.panel-pagina__cabecera h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+.panel-pagina__sub {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+.panel-acciones {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.buscador {
+  min-width: 230px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+.buscador:focus {
+  outline: 2px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  outline-offset: 1px;
+}
+
+/* KPIs secundarios y enlaces ---------------------------------------------- */
+.kpis--secundarios .kpi-card { min-height: auto; }
+.kpi-card--enlace {
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.kpi-card--enlace:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+.kpi-card__detalle {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.kpi-card--alerta {
+  border-color: color-mix(in srgb, var(--st-bad-fg) 35%, var(--border));
+}
+.kpi-card--alerta strong { color: var(--st-bad-fg); }
+.kpi-card--ok strong { color: var(--st-ok-fg); }
+
+.accesos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.accesos a {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.accesos a:hover { border-color: var(--primary); color: var(--primary); }
+
+/* Filtros y utilidades de tabla -------------------------------------------- */
+.panel-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.panel-filtros__conteo { margin-left: auto; }
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.check input { accent-color: var(--primary); }
+
+.tabla-scroll { overflow-x: auto; }
+.tabla-scroll .tabla { min-width: 620px; }
+.tabla .num { text-align: right; font-variant-numeric: tabular-nums; }
+.tabla .acciones { text-align: right; white-space: nowrap; }
+.celda-sub {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  margin-top: 2px;
+}
+.fila--apagada { opacity: 0.55; }
+.num--negativo { color: var(--st-bad-fg); font-weight: 600; }
+.num--positivo { color: var(--st-ok-fg); font-weight: 600; }
+
+.boton-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.boton-mini:hover { border-color: var(--primary); color: var(--primary); }
+.boton-mini:disabled { opacity: 0.5; cursor: not-allowed; }
+.boton-mini--primario { background: var(--primary); border-color: var(--primary); color: #fff; }
+.boton-mini--primario:hover { color: #fff; }
+.boton-mini--secundario { color: var(--text-muted); }
+.boton-mini--peligro { color: var(--st-bad-fg); border-color: color-mix(in srgb, var(--st-bad-fg) 35%, var(--border)); }
+.boton-mini--peligro:hover { background: var(--st-bad-bg); color: var(--st-bad-fg); }
+
+.boton--peligro {
+  background: var(--st-bad-fg);
+  border-color: var(--st-bad-fg);
+  color: #fff;
+}
+.boton--peligro:disabled { opacity: 0.5; }
+.boton--bloque { width: 100%; justify-content: center; margin-top: 10px; }
+
+/* Notas y subtítulos ------------------------------------------------------- */
+.nota {
+  margin: 0;
+  padding: 11px 14px;
+  border-radius: var(--radius-md, 10px);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.nota--alerta {
+  border-left-color: var(--st-bad-fg);
+  background: var(--st-bad-bg);
+  color: var(--st-bad-fg);
+}
+.nota code { font-size: 12px; }
+.subtitulo {
+  margin: 6px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Fichas y totales --------------------------------------------------------- */
+.ficha {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--surface-2);
+}
+.ficha small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ficha strong { display: block; margin-top: 3px; font-size: 13.5px; }
+
+.totales-caja {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--surface);
+  font-size: 13px;
+}
+.totales-caja > div { display: flex; justify-content: space-between; gap: 20px; }
+.totales-caja__total {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 15px;
+}
+.totales-caja__total strong { color: var(--primary); }
+
+.datos-lista { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.datos-lista__fila { display: flex; justify-content: space-between; gap: 18px; font-size: 13px; }
+.datos-lista dt { color: var(--text-muted); }
+.datos-lista dd { margin: 0; text-align: right; font-weight: 600; }
+
+/* Órdenes de compra (renglones dinámicos) --------------------------------- */
+.renglones-oc { display: flex; flex-direction: column; gap: 10px; }
+.renglon-oc {
+  display: grid;
+  grid-template-columns: 1fr 90px 110px auto;
+  gap: 8px;
+  align-items: end;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md, 10px);
+}
+.campo--corto input { width: 100%; }
+
+.botones-cantidad,
+.botones-confirmar { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Clientes ---------------------------------------------------------------- */
+.persona { display: flex; align-items: center; gap: 10px; }
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.lista-compacta { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lista-compacta li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.tickets { display: flex; flex-direction: column; gap: 10px; }
+.ticket {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--surface);
+}
+.ticket__cabecera { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.ticket p { margin: 6px 0; font-size: 13px; color: var(--text-muted); }
+.ticket__acciones { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+
+/* Tablero de envíos -------------------------------------------------------- */
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(240px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.kanban__columna {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  min-height: 140px;
+}
+.kanban__cabecera { display: flex; align-items: center; justify-content: space-between; }
+.kanban__cabecera h2 { margin: 0; font-size: 14px; }
+.kanban__conteo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 700;
+}
+.kanban__tarjeta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--surface);
+}
+.kanban__tarjeta-cabecera { display: flex; justify-content: space-between; font-size: 13px; }
+.kanban__cliente { margin: 2px 0 0; font-weight: 600; font-size: 13px; }
+.kanban__direccion,
+.kanban__detalle,
+.kanban__fecha { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+.kanban__guia {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 12px;
+}
+.kanban__guia a { color: var(--primary); font-weight: 600; text-decoration: none; }
+.kanban__vacio { margin: 0; padding: 14px 4px; color: var(--text-muted); font-size: 12.5px; text-align: center; }
+
+/* Gráfica SVG -------------------------------------------------------------- */
+.grafica { width: 100%; overflow-x: auto; }
+.grafica svg { width: 100%; height: auto; min-width: 480px; display: block; }
+.grafica__linea { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; }
+.grafica__eje { fill: var(--text-muted); font-size: 9px; }
+.grafica__eje--mes { font-size: 10px; }
+.grafica__barra--ingreso { fill: var(--st-ok-fg); opacity: 0.85; }
+.grafica__barra--utilidad { fill: var(--primary); opacity: 0.9; }
+
+/* XML / CFDI --------------------------------------------------------------- */
+.xml-caja {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--surface);
+  overflow: hidden;
+}
+.xml-caja__cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.xml-caja__pre {
+  margin: 0;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  background: var(--surface-2);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: breakword;
+}
+.uuid { font-size: 12px; }
+
+/* Sidebar: contador de stock bajo ----------------------------------------- */
+.nav-badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--st-bad-bg);
+  color: var(--st-bad-fg);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+@media (max-width: 1080px) {
+  .kanban { grid-template-columns: 1fr; }
+  .renglon-oc { grid-template-columns: 1fr 80px 100px; }
+  .renglon-oc .boton-mini { grid-column: 1 / -1; justify-content: center; }
+}

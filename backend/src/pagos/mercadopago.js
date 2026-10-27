@@ -70,13 +70,16 @@ async function apiMercadoPago(ruta, { metodo = 'GET', cuerpo, encabezados = {} }
     datos = { error: texto };
   }
   if (!respuesta.ok) {
-    const error = new Error(
-      `Mercado Pago respondio ${respuesta.status}: ${datos?.message || datos?.error || 'error desconocido'}`
-    );
-    // Guardamos el status_detail (o el codigo de la primera "cause") para que
-    // el resolver pueda mostrar un mensaje amigable en vez del error tecnico.
-    error.statusDetail =
-      datos?.status_detail || datos?.cause?.[0]?.code || null;
+    const detalleOrders = Array.isArray(datos?.errors)
+      ? datos.errors.map((e) => [e.code, e.message].filter(Boolean).join(': ')).join('; ')
+      : '';
+    const detalle =
+      datos?.message || datos?.error || detalleOrders || (datos ? JSON.stringify(datos) : '') || 'error desconocido';
+    console.error(`[mercadopago] ${metodo} ${ruta} -> ${respuesta.status}`, texto);
+    const error = new Error(`Mercado Pago respondio ${respuesta.status}: ${detalle}`);
+    // status_detail (o codigo de la primera "cause") para que el resolver
+    // muestre un mensaje amigable en vez del error tecnico.
+    error.statusDetail = datos?.status_detail || datos?.cause?.[0]?.code || null;
     throw error;
   }
   return datos;
@@ -106,72 +109,134 @@ export async function crearPago({
     .update(`${pedidoId}:${token}`)
     .digest('hex');
 
-  const pago = await apiMercadoPago('/v1/payments', {
+  // Cobro con la API de Orders (POST /v1/orders), igual que OXXO: es la que
+  // documenta Mercado Pago para Checkout API y la que acepta el Access Token
+  // de prueba (/v1/payments respondia 401 "live credentials").
+  const total = Number(Number(monto).toFixed(2)).toFixed(2);
+  const metodoId = String(paymentMethodId || '');
+  const orden = await apiMercadoPago('/v1/orders', {
     metodo: 'POST',
     encabezados: { 'X-Idempotency-Key': idempotencyKey },
     cuerpo: {
-      transaction_amount: Number(Number(monto).toFixed(2)),
-      description: descripcion || `Pedido #${pedidoId} - NexoPlay`,
+      type: 'online',
+      processing_mode: 'automatic',
+      total_amount: total,
       external_reference: String(pedidoId),
-      installments: Number(installments) || 1,
-      payment_method_id: paymentMethodId,
-      issuer_id: issuerId ? Number(issuerId) : undefined,
-      token,
       payer: {
-        email: payerEmail,
+        // En sandbox MP solo acepta compradores de prueba: MP_TEST_PAYER_EMAIL
+        // (opcional) sustituye el correo real de la sesion. Vacio en produccion.
+        email: process.env.MP_TEST_PAYER_EMAIL || payerEmail,
       },
-      metadata: { pedido_id: String(pedidoId) },
+      transactions: {
+        payments: [
+          {
+            amount: total,
+            payment_method: {
+              id: metodoId,
+              // Las tarjetas de debito de MP llevan id "deb..." (debvisa, debmaster).
+              type: /^deb/i.test(metodoId) ? 'debit_card' : 'credit_card',
+              token,
+              installments: Number(installments) || 1,
+            },
+          },
+        ],
+      },
     },
   });
 
+  const pago = orden?.transactions?.payments?.[0] || {};
+  const estadoOrden = String(pago.status || orden.status || '').toLowerCase();
+
+  // Se traduce al vocabulario de /v1/payments que ya usa el resolver:
+  // approved | rejected | pending | in_process.
+  let estado = 'pending';
+  if (estadoOrden === 'processed' || orden.status_detail === 'accredited') {
+    estado = 'approved';
+  } else if (['failed', 'canceled', 'cancelled', 'expired', 'rejected'].includes(estadoOrden)) {
+    estado = 'rejected';
+  } else if (estadoOrden === 'processing') {
+    estado = 'in_process';
+  }
+
   return {
-    estado: pago.status,
-    idPago: pago.id,
-    statusDetail: pago.status_detail,
+    estado,
+    idPago: pago.id || orden.id,
+    statusDetail: pago.status_detail || orden.status_detail,
   };
 }
 
 /**
- * Genera un pago OXXO (pago en efectivo en tienda) con Checkout API.
- * No cobra al instante: Mercado Pago devuelve un ticket en estado pending
- * (pending_waiting_payment) con una ficha para pagar en la tienda. El cobro
- * se acredita despues (webhook en produccion, verificarPago en desarrollo).
+ * Genera un pago OXXO (pago en efectivo en tienda) con la API de Orders
+ * (POST /v1/orders), que es la que Mercado Pago documenta para "otros medios
+ * de pago" y la que acepta el Access Token de prueba. La ruta antigua
+ * /v1/payments respondia 401 "Unauthorized use of live credentials" para
+ * medios offline aun con credenciales de prueba.
+ *
+ * No cobra al instante: la order queda en action_required / waiting_payment
+ * con una ficha para pagar en la tienda. El cobro se acredita despues
+ * (webhook en produccion, verificarPago en desarrollo).
  * Devuelve { estado, idPago, urlTicket, referencia, expira }.
  */
 export async function crearPagoOxxo({
   pedidoId,
   monto,
   payerEmail,
-  descripcion,
+  descripcion, // eslint-disable-line no-unused-vars
 }) {
   // Idempotencia: un mismo pedido no debe generar DOS fichas si el navegador
   // reintenta el mismo intento.
+  const total = Number(monto).toFixed(2);
+  // La clave depende del contenido (pedido + monto + correo): el mismo intento
+  // repetido devuelve la misma ficha, pero cambiar el correo genera otra
+  // peticion distinta y no choca (409) con la anterior.
   const idempotencyKey = createHash('sha256')
-    .update(`${pedidoId}:oxxo`)
+    .update(`${pedidoId}:oxxo:${total}:${String(payerEmail).toLowerCase()}`)
     .digest('hex');
 
-  const pago = await apiMercadoPago('/v1/payments', {
+  const nombre = (payerEmail || 'cliente').split('@')[0].slice(0, 30) || 'Cliente';
+
+  let orden = await apiMercadoPago('/v1/orders', {
     metodo: 'POST',
     encabezados: { 'X-Idempotency-Key': idempotencyKey },
     cuerpo: {
-      transaction_amount: Number(Number(monto).toFixed(2)),
-      description: descripcion || `Pedido #${pedidoId} - NexoPlay`,
+      type: 'online',
       external_reference: String(pedidoId),
-      payment_method_id: 'oxxo',
+      processing_mode: 'automatic',
+      total_amount: total,
+      expiration_time: 'P3D',
       payer: {
         email: payerEmail,
+        first_name: nombre,
+        last_name: 'NexoPlay',
       },
-      metadata: { pedido_id: String(pedidoId), payment_point: 'oxxo' },
+      transactions: {
+        payments: [
+          {
+            amount: total,
+            payment_method: { id: 'oxxo', type: 'ticket' },
+          },
+        ],
+      },
     },
   });
 
+  // El procesamiento es asincrono: si la ficha aun no viene en la respuesta,
+  // se consulta la order un par de veces.
+  for (let intento = 0; intento < 3; intento += 1) {
+    if (orden?.transactions?.payments?.[0]?.payment_method?.ticket_url) break;
+    await new Promise((resolver) => setTimeout(resolver, 1000));
+    orden = await apiMercadoPago(`/v1/orders/${encodeURIComponent(orden.id)}`);
+  }
+
+  const pago = orden?.transactions?.payments?.[0] || {};
+  const metodo = pago.payment_method || {};
   return {
-    estado: pago.status,
-    idPago: pago.id,
+    estado: pago.status_detail === 'waiting_payment' ? 'pending' : pago.status || orden.status,
+    idPago: pago.id || orden.id,
     // La ficha imprimible y la referencia que el cliente muestra en la tienda.
-    urlTicket: pago.transaction_details?.external_resource_url || null,
-    referencia: pago.transaction_details?.payment_method_reference_id || null,
-    expira: pago.date_of_expiration || null,
+    urlTicket: metodo.ticket_url || null,
+    referencia: metodo.reference || null,
+    expira: pago.date_of_expiration || orden.expiration_time || null,
   };
 }
 

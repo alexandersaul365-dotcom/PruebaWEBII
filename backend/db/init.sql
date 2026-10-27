@@ -117,6 +117,166 @@ INSERT INTO usuarios (nombre, email, password, auth_provider, rol) VALUES
   ('Operador NexoPlay', 'operador@nexoplay.com', '$2b$10$L.Gv21z/UQoCQ8R9DvjKYO1xn9sODOVBgerl.Sr4zHNDUBjGWQfkK', 'LOCAL', 'OPERADOR'),
   ('Cliente Demo', 'cliente@nexoplay.com', '$2b$10$GlIatUhSnNm0UzNbUK1dB.CvEoKvWuUfg7BnIJQTYujK3mz8c37jK', 'LOCAL', 'CLIENTE');
 
+-- =================================================================
+-- Modulos del ERP (espejo de db/migracion-erp.sql para instalaciones
+-- limpias; las bases ya creadas aplican la migracion incremental).
+-- =================================================================
+
+-- productos: costo de adquisicion, umbral de alerta por producto, SKU y
+-- bandera de baja logica (el catalogo solo muestra activos).
+ALTER TABLE productos
+  ADD COLUMN costo_adquisicion NUMERIC(10,2) NOT NULL DEFAULT 0,
+  ADD COLUMN stock_minimo      INTEGER NOT NULL DEFAULT 5,
+  ADD COLUMN sku               TEXT UNIQUE,
+  ADD COLUMN activo            BOOLEAN NOT NULL DEFAULT true;
+
+-- pedidos: desglose fiscal (subtotal/IVA/total) y direccion de envio.
+ALTER TABLE pedidos
+  ADD COLUMN subtotal          NUMERIC(10,2),
+  ADD COLUMN impuestos         NUMERIC(10,2) NOT NULL DEFAULT 0,
+  ADD COLUMN tasa_impuesto     NUMERIC(5,4)  NOT NULL DEFAULT 0.16,
+  ADD COLUMN costo_envio       NUMERIC(10,2) NOT NULL DEFAULT 0,
+  ADD COLUMN direccion_envio   TEXT,
+  ADD COLUMN ciudad            TEXT,
+  ADD COLUMN estado_geo        TEXT,
+  ADD COLUMN codigo_postal     TEXT,
+  ADD COLUMN telefono_contacto TEXT;
+
+-- detalle_pedido: snapshot del costo al momento de vender (margen historico).
+ALTER TABLE detalle_pedido
+  ADD COLUMN costo_unitario_snapshot NUMERIC(10,2);
+
+CREATE TABLE proveedores (
+  id                  SERIAL PRIMARY KEY,
+  nombre              TEXT NOT NULL,
+  contacto            TEXT,
+  email               TEXT,
+  telefono            TEXT,
+  marcas_distribuidas TEXT,
+  condiciones_pago    TEXT NOT NULL DEFAULT 'CONTADO'
+                      CHECK (condiciones_pago IN ('CONTADO', 'CREDITO_30', 'CREDITO_60')),
+  dias_credito        INTEGER NOT NULL DEFAULT 0,
+  notas               TEXT,
+  activo              BOOLEAN NOT NULL DEFAULT true
+);
+
+CREATE TABLE ordenes_compra (
+  id           SERIAL PRIMARY KEY,
+  proveedor_id INTEGER NOT NULL REFERENCES proveedores(id),
+  fecha        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  estado       TEXT NOT NULL DEFAULT 'BORRADOR'
+               CHECK (estado IN ('BORRADOR', 'RECIBIDA', 'CANCELADA')),
+  subtotal     NUMERIC(10,2) NOT NULL DEFAULT 0,
+  impuestos    NUMERIC(10,2) NOT NULL DEFAULT 0,
+  total        NUMERIC(10,2) NOT NULL DEFAULT 0,
+  recibida_en  TIMESTAMPTZ,
+  usuario_id   INTEGER REFERENCES usuarios(id)
+);
+
+CREATE TABLE detalle_oc (
+  id             SERIAL PRIMARY KEY,
+  oc_id          INTEGER NOT NULL REFERENCES ordenes_compra(id) ON DELETE CASCADE,
+  producto_id    INTEGER NOT NULL REFERENCES productos(id),
+  cantidad       INTEGER NOT NULL CHECK (cantidad > 0),
+  costo_unitario NUMERIC(10,2) NOT NULL
+);
+
+-- Libro de inventario: TODO cambio de stock deja un renglon aqui; los
+-- movimientos se agregan y nunca se sobrescriben ni se borran.
+CREATE TABLE movimientos_inventario (
+  id            SERIAL PRIMARY KEY,
+  producto_id   INTEGER NOT NULL REFERENCES productos(id),
+  tipo          TEXT NOT NULL CHECK (tipo IN ('ENTRADA', 'SALIDA', 'AJUSTE')),
+  cantidad      INTEGER NOT NULL,
+  origen        TEXT NOT NULL CHECK (origen IN ('OC', 'PEDIDO', 'AJUSTE_MANUAL', 'CANCELACION')),
+  referencia_id INTEGER,
+  motivo        TEXT,
+  usuario_id    INTEGER REFERENCES usuarios(id),
+  fecha         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Libro contable (partida doble simplificada): asientos inmutables; la
+-- reversa de una cancelacion es un asiento negativo, nunca un borrado.
+CREATE TABLE movimientos_contables (
+  id            SERIAL PRIMARY KEY,
+  fecha         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  tipo          TEXT NOT NULL CHECK (tipo IN ('INGRESO', 'EGRESO')),
+  cuenta        TEXT NOT NULL CHECK (cuenta IN ('CAJA', 'BANCO', 'INVENTARIO', 'COSTO_VENTAS', 'IVA_TRASLADADO', 'IVA_ACREDITABLE')),
+  monto         NUMERIC(10,2) NOT NULL,
+  concepto      TEXT NOT NULL,
+  origen        TEXT NOT NULL CHECK (origen IN ('PEDIDO', 'OC', 'CANCELACION')),
+  referencia_id INTEGER,
+  usuario_id    INTEGER REFERENCES usuarios(id)
+);
+
+-- Facturas: estructura CFDI 4.0 sin timbrar (el timbrado real requiere un
+-- PAC con contrato y CSD; ver src/finanzas/cfdi.js).
+CREATE TABLE facturas (
+  id                   SERIAL PRIMARY KEY,
+  pedido_id            INTEGER NOT NULL UNIQUE REFERENCES pedidos(id),
+  serie                TEXT NOT NULL DEFAULT 'A',
+  folio                INTEGER NOT NULL,
+  rfc                  TEXT NOT NULL,
+  razon_social         TEXT NOT NULL,
+  regimen_fiscal       TEXT NOT NULL,
+  uso_cfdi             TEXT NOT NULL,
+  codigo_postal_fiscal TEXT NOT NULL,
+  subtotal             NUMERIC(10,2) NOT NULL,
+  impuestos            NUMERIC(10,2) NOT NULL,
+  total                NUMERIC(10,2) NOT NULL,
+  estado               TEXT NOT NULL DEFAULT 'EMITIDA'
+                       CHECK (estado IN ('BORRADOR', 'EMITIDA', 'CANCELADA')),
+  usuario_id           INTEGER REFERENCES usuarios(id),
+  uuid_fiscal          TEXT,
+  emitida_en           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE SEQUENCE folio_factura_seq START 1;
+
+CREATE TABLE envios (
+  id                     SERIAL PRIMARY KEY,
+  pedido_id              INTEGER NOT NULL UNIQUE REFERENCES pedidos(id),
+  paqueteria             TEXT NOT NULL CHECK (paqueteria IN ('DHL', 'ESTAFETA', 'FEDEX', 'SIMULADA')),
+  numero_guia            TEXT NOT NULL,
+  url_rastreo            TEXT,
+  costo_envio            NUMERIC(10,2) NOT NULL DEFAULT 0,
+  fecha_creacion         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  fecha_entrega_estimada DATE,
+  entregado_en           TIMESTAMPTZ,
+  simulada               BOOLEAN NOT NULL DEFAULT false
+);
+
+-- Quien y cuando movio cada pedido (trazabilidad; el estado actual sigue
+-- viviendo en pedidos.status).
+CREATE TABLE historial_estados_pedido (
+  id              SERIAL PRIMARY KEY,
+  pedido_id       INTEGER NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
+  estado_anterior TEXT,
+  estado_nuevo    TEXT NOT NULL,
+  comentario      TEXT,
+  usuario_id      INTEGER REFERENCES usuarios(id),
+  fecha           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE tickets_soporte (
+  id          SERIAL PRIMARY KEY,
+  usuario_id  INTEGER NOT NULL REFERENCES usuarios(id),
+  pedido_id   INTEGER REFERENCES pedidos(id),
+  asunto      TEXT NOT NULL,
+  descripcion TEXT NOT NULL,
+  estado      TEXT NOT NULL DEFAULT 'ABIERTO'
+              CHECK (estado IN ('ABIERTO', 'EN_PROCESO', 'CERRADO')),
+  prioridad   TEXT NOT NULL DEFAULT 'MEDIA'
+              CHECK (prioridad IN ('BAJA', 'MEDIA', 'ALTA')),
+  creado_en   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  cerrado_en  TIMESTAMPTZ
+);
+
+-- Proveedor demo para que el modulo de compras sea usable sin datos a mano.
+INSERT INTO proveedores (nombre, contacto, email, telefono, marcas_distribuidas, condiciones_pago, dias_credito, notas)
+VALUES ('Distribuidora Pixel Norte', 'Laura Medina', 'ventas@pixelnorte.example.com', '3312345678',
+        'Sony, Nintendo, Microsoft', 'CREDITO_30', 30, 'Proveedor demo del ERP.');
+
 -- Nota: ya NO se inserta aquí un usuario "Juan Perez" con password de
 -- ejemplo ni un pedido semilla a su nombre, porque en este proyecto los
 -- pedidos solo los puede crear un usuario autenticado (por Google, en la
@@ -241,3 +401,34 @@ CREATE POLICY usuarios_editarse_a_si_mismo ON usuarios
 CREATE POLICY admin_ve_todos_los_pedidos ON pedidos FOR SELECT TO web_admin USING (true);
 CREATE POLICY admin_ve_todo_el_detalle ON detalle_pedido FOR SELECT TO web_admin USING (true);
 CREATE POLICY admin_ve_todos_los_usuarios ON usuarios FOR SELECT TO web_admin USING (true);
+
+-- Politica FOR ALL de web_admin sobre TODAS las tablas (incluidas las del
+-- ERP): el rol del panel puede leer y escribir sin que las politicas de
+-- "pedidos propios" lo estorben. Y RLS habilitado en las tablas nuevas
+-- (las originales ya lo tenian) para que existan protegidas desde su
+-- creacion; las politicas web_anon/web_user no las tocan.
+DO $$
+DECLARE
+  t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['proveedores', 'ordenes_compra', 'detalle_oc',
+    'movimientos_inventario', 'movimientos_contables', 'facturas', 'envios',
+    'historial_estados_pedido', 'tickets_soporte']
+  LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+  END LOOP;
+
+  FOREACH t IN ARRAY ARRAY['pedidos', 'detalle_pedido', 'usuarios', 'productos',
+    'categorias', 'proveedores', 'ordenes_compra', 'detalle_oc',
+    'movimientos_inventario', 'movimientos_contables', 'facturas', 'envios',
+    'historial_estados_pedido', 'tickets_soporte']
+  LOOP
+    EXECUTE format(
+      'CREATE POLICY admin_total_%I ON %I FOR ALL TO web_admin USING (true) WITH CHECK (true)',
+      t, t);
+  END LOOP;
+END $$;
+
+-- Tablas futuras heredan los GRANTS para web_admin sin tocar este archivo.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO web_admin;

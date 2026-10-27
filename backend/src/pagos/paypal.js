@@ -51,8 +51,14 @@ async function apiPayPal(ruta, { metodo = 'GET', cuerpo, token } = {}) {
     datos = { error: texto };
   }
   if (!respuesta.ok) {
+    const detalles = Array.isArray(datos?.details)
+      ? datos.details
+          .map((d) => [d.field, d.issue, d.description].filter(Boolean).join(' - '))
+          .join('; ')
+      : '';
+    console.error(`[paypal] ${metodo} ${ruta} -> ${respuesta.status}`, texto);
     throw new Error(
-      `PayPal respondio ${respuesta.status}: ${datos?.message || datos?.error_description || 'error desconocido'}`
+      `PayPal respondio ${respuesta.status}: ${datos?.message || datos?.error_description || 'error desconocido'}${detalles ? ` (${detalles})` : ''}`
     );
   }
   return datos;
@@ -88,7 +94,12 @@ async function obtenerToken() {
  */
 export async function crearOrden({ pedidoId, total }) {
   const token = await obtenerToken();
-  const appUrl = process.env.APP_URL || 'http://localhost:4321';
+  // APP_URL puede llegar con espacios o un salto de linea al final (pasa al
+  // pegarla en el panel de Render) o con "/" final: PayPal rechaza el
+  // return_url con un 400 si queda mal formado.
+  const appUrl = (process.env.APP_URL || 'http://localhost:4321')
+    .trim()
+    .replace(/\/+$/, '');
   const query = `pedido=${pedidoId}&proveedor=paypal`;
 
   const orden = await apiPayPal('/v2/checkout/orders', {

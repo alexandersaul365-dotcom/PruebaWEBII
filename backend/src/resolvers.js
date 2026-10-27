@@ -5,7 +5,15 @@ import { verificarIdTokenGoogle, buscarOCrearUsuarioGoogle } from './auth/google
 import { crearHash, verificarPassword } from './auth/password.js';
 import { crearPago as crearPagoMercadoPago, crearPagoOxxo, consultarPagoPorReferencia, mensajeEstadoMercadoPago } from './pagos/mercadopago.js';
 import { crearOrden as crearOrdenPayPal, capturarOrden, consultarOrden } from './pagos/paypal.js';
-import { marcarPagoAprobado, marcarPagoCancelado, marcarPagoFallido, devolverStock } from './pagos/estado-pedido.js';
+import { marcarPagoAprobado, marcarPagoFallido } from './pagos/estado-pedido.js';
+import { registrarMovimiento } from './inventario/movimientos.js';
+import { revertirAsientosVenta } from './contabilidad/asientos.js';
+import { resolversInventario } from './inventario/resolvers.js';
+import { resolversFinanzas } from './finanzas/resolvers.js';
+import { resolversLogistica } from './logistica/resolvers.js';
+import { resolversCrm } from './crm/resolvers.js';
+import { resolversReportes } from './reportes/resolvers.js';
+import { fechaHora } from './util/fechas.js';
 
 // Estados siguientes permitidos al cambiar el estado de un pedido desde el
 // panel. La cancelacion se permite desde PENDING/CONFIRMED/SHIPPED y devuelve
@@ -30,7 +38,32 @@ function validarProductoInput(datos) {
   if (!Number.isFinite(stock) || !Number.isInteger(stock) || stock < 0) {
     throw new Error('El stock debe ser un entero mayor o igual a cero.');
   }
-  return { ...datos, nombre, precio, stock };
+  const costo = Number(datos.costoAdquisicion ?? 0);
+  if (!Number.isFinite(costo) || costo < 0) {
+    throw new Error('El costo de adquisicion debe ser un numero mayor o igual a cero.');
+  }
+  const stockMinimo = Number(datos.stockMinimo ?? 5);
+  if (!Number.isInteger(stockMinimo) || stockMinimo < 0) {
+    throw new Error('El stock minimo debe ser un entero mayor o igual a cero.');
+  }
+  return {
+    ...datos,
+    nombre,
+    precio,
+    stock,
+    costoAdquisicion: costo,
+    stockMinimo,
+    sku: (datos.sku || '').trim() || null,
+    activo: datos.activo ?? true,
+  };
+}
+
+/** Mensaje claro si el SKU (unico) ya esta ocupado por otro producto. */
+function errorSkuDuplicado(error) {
+  if (error && error.code === '23505') {
+    return new Error('Ya existe otro producto con ese SKU.');
+  }
+  return error;
 }
 
 /** Valida que el usuario pueda ver/operar un pedido (dueno o equipo del panel). */
@@ -46,13 +79,16 @@ async function pedidoAutorizado(id, usuario) {
   return pedido;
 }
 
-export const resolvers = {
+const resolversBase = {
   Query: {
     categorias: () => query('SELECT * FROM categorias ORDER BY id'),
     categoria: (_, { id }) => queryOne('SELECT * FROM categorias WHERE id = $1', [id]),
 
-    productos: (_, { limite = 20, desde = 0 }) =>
-      query('SELECT * FROM productos ORDER BY id LIMIT $1 OFFSET $2', [limite, desde]),
+    productos: (_, { limite = 20, desde = 0, incluirInactivos = false }) =>
+      query(
+        `SELECT * FROM productos ${incluirInactivos ? '' : 'WHERE activo'} ORDER BY id LIMIT $1 OFFSET $2`,
+        [limite, desde]
+      ),
     producto: (_, { id }) => queryOne('SELECT * FROM productos WHERE id = $1', [id]),
 
     // Un CLIENTE solo ve sus propios pedidos; el equipo del panel los ve todos.
@@ -89,7 +125,14 @@ export const resolvers = {
         ),
         queryOne('SELECT COUNT(*)::int AS total FROM pedidos'),
         query('SELECT status AS estado, COUNT(*)::int AS cantidad FROM pedidos GROUP BY status ORDER BY estado'),
-        query('SELECT * FROM productos WHERE stock <= $1 ORDER BY stock ASC LIMIT $2', [limiteStock, 20]),
+        // El umbral ahora es por producto (stock_minimo); el argumento
+        // limiteStock se conserva en el esquema por compatibilidad.
+        query(
+          `SELECT * FROM productos
+            WHERE activo AND stock <= stock_minimo
+            ORDER BY stock ASC LIMIT $1`,
+          [20]
+        ),
         query('SELECT * FROM pedidos ORDER BY id DESC LIMIT $1', [topeRecientes]),
       ]);
 
@@ -114,12 +157,28 @@ export const resolvers = {
     crearProducto: async (_, { datos }, context) => {
       requerirPanel(context);
       const validos = validarProductoInput(datos);
-      return queryOne(
-        `INSERT INTO productos (nombre, precio, imagen, stock, categoria_id)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING *`,
-        [validos.nombre, validos.precio, validos.imagen ?? null, validos.stock, validos.categoriaId]
-      );
+      try {
+        return await queryOne(
+          `INSERT INTO productos
+             (nombre, precio, imagen, stock, categoria_id,
+              costo_adquisicion, sku, stock_minimo, activo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING *`,
+          [
+            validos.nombre,
+            validos.precio,
+            validos.imagen ?? null,
+            validos.stock,
+            validos.categoriaId ?? null,
+            validos.costoAdquisicion,
+            validos.sku,
+            validos.stockMinimo,
+            validos.activo,
+          ]
+        );
+      } catch (error) {
+        throw errorSkuDuplicado(error);
+      }
     },
 
     actualizarProducto: async (_, { id, datos }, context) => {
@@ -127,18 +186,40 @@ export const resolvers = {
       const validos = validarProductoInput(datos);
       const existente = await queryOne('SELECT * FROM productos WHERE id = $1', [id]);
       if (!existente) return null;
-      return queryOne(
-        `UPDATE productos
-           SET nombre = $1, precio = $2, imagen = $3, stock = $4, categoria_id = $5
-         WHERE id = $6
-         RETURNING *`,
-        [validos.nombre, validos.precio, validos.imagen ?? null, validos.stock, validos.categoriaId, id]
-      );
+      try {
+        return await queryOne(
+          `UPDATE productos
+             SET nombre = $1, precio = $2, imagen = $3, stock = $4,
+                 categoria_id = $5, costo_adquisicion = $6, sku = $7,
+                 stock_minimo = $8, activo = $9
+           WHERE id = $10
+           RETURNING *`,
+          [
+            validos.nombre,
+            validos.precio,
+            validos.imagen ?? null,
+            validos.stock,
+            validos.categoriaId ?? null,
+            validos.costoAdquisicion,
+            validos.sku,
+            validos.stockMinimo,
+            validos.activo,
+            id,
+          ]
+        );
+      } catch (error) {
+        throw errorSkuDuplicado(error);
+      }
     },
 
     eliminarProducto: async (_, { id }, context) => {
       requerirPanel(context);
-      const rows = await query('DELETE FROM productos WHERE id = $1 RETURNING id', [id]);
+      // Baja logica: los movimientos de inventario y las ordenes de compra
+      // referencian el producto, y un libro no se puede romper borrando.
+      const rows = await query(
+        'UPDATE productos SET activo = false WHERE id = $1 RETURNING id',
+        [id]
+      );
       return rows.length > 0;
     },
 
@@ -150,15 +231,31 @@ export const resolvers = {
         throw new Error('El pedido necesita al menos un renglon (producto + cantidad).');
       }
 
+      // La tasa viaja POR PEDIDO (0.16 por defecto; 0.08 en frontera; 0 para
+      // exento). El desglose se congela en el pedido: si el IVA cambia en el
+      // futuro, los pedidos viejos conservan el suyo.
+      const tasa = datos.tasaImpuesto == null ? 0.16 : Number(datos.tasaImpuesto);
+      if (!Number.isFinite(tasa) || tasa < 0 || tasa > 1) {
+        throw new Error('La tasa de impuesto debe estar entre 0 y 1 (0.16 = 16%).');
+      }
+      const costoEnvio = Number(datos.costoEnvio || 0);
+      if (!Number.isFinite(costoEnvio) || costoEnvio < 0) {
+        throw new Error('El costo de envio debe ser un numero mayor o igual a cero.');
+      }
+
       // Dentro de una transaccion real: se valida y DESCUENTA el stock (con
       // lock de fila para que dos compradores no vendan la ultima unidad a la
-      // vez), y se inserta el pedido junto con sus renglones. O no se crea
-      // nada si cualquier paso falla.
+      // vez), se inserta el pedido con su desglose y sus renglones, y cada
+      // salida de stock deja su movimiento en el libro de inventario.
       const pedidoId = await withTransaction(async (client) => {
-        let total = 0;
+        let subtotal = 0;
         const renglones = [];
 
         for (const r of datos.detalles) {
+          const cantidad = Number(r.cantidad);
+          if (!Number.isInteger(cantidad) || cantidad <= 0) {
+            throw new Error('La cantidad debe ser un entero mayor a cero.');
+          }
           const producto = await client.queryOne(
             'SELECT * FROM productos WHERE id = $1 FOR UPDATE',
             [r.productoId]
@@ -166,38 +263,68 @@ export const resolvers = {
           if (!producto) {
             throw new Error(`No existe un producto con id ${r.productoId}`);
           }
-          if (r.cantidad <= 0) {
-            throw new Error('La cantidad debe ser mayor a cero.');
+          if (producto.activo === false) {
+            throw new Error(`"${producto.nombre}" ya no esta disponible en el catalogo.`);
           }
-          if (producto.stock < r.cantidad) {
+          if (producto.stock < cantidad) {
             throw new Error(
               `Stock insuficiente para "${producto.nombre}": quedan ${producto.stock} disponible(s).`
             );
           }
-          await client.queryOne(
-            'UPDATE productos SET stock = stock - $2 WHERE id = $1',
-            [producto.id, r.cantidad]
-          );
-          total += Number(producto.precio) * r.cantidad;
+          subtotal += Number(producto.precio) * cantidad;
           renglones.push({
             productoId: producto.id,
-            cantidad: r.cantidad,
-            precioUnitario: producto.precio,
+            cantidad,
+            precioUnitario: Number(producto.precio),
+            // Snapshot del costo: el margen historico no cambia si despues
+            // sube o baja el costo de adquisicion.
+            costoUnitarioSnapshot: Number(producto.costo_adquisicion || 0),
           });
         }
 
+        // Redondeo a centavos: el dinero no se maneja con floats "crudos".
+        subtotal = Math.round(subtotal * 100) / 100;
+        const impuestos = Math.round(subtotal * tasa * 100) / 100;
+        const total = Math.round((subtotal + impuestos + costoEnvio) * 100) / 100;
+
         const pedido = await client.queryOne(
-          `INSERT INTO pedidos (usuario_id, total, status, metodo_pago)
-           VALUES ($1, $2, 'PENDING', $3)
+          `INSERT INTO pedidos
+             (usuario_id, total, subtotal, impuestos, tasa_impuesto, costo_envio,
+              status, metodo_pago, direccion_envio, ciudad, estado_geo,
+              codigo_postal, telefono_contacto)
+           VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7, $8, $9, $10, $11, $12)
            RETURNING id`,
-          [usuario.id, total, datos.metodoPago ?? null]
+          [
+            usuario.id,
+            total,
+            subtotal,
+            impuestos,
+            tasa,
+            costoEnvio,
+            datos.metodoPago ?? null,
+            datos.direccionEnvio ?? null,
+            datos.ciudad ?? null,
+            datos.estadoGeo ?? null,
+            datos.codigoPostal ?? null,
+            datos.telefonoContacto ?? null,
+          ]
         );
 
         for (const r of renglones) {
+          await registrarMovimiento(client, {
+            productoId: r.productoId,
+            tipo: 'SALIDA',
+            cantidad: r.cantidad,
+            origen: 'PEDIDO',
+            referenciaId: pedido.id,
+            usuarioId: usuario.id,
+            motivo: `Venta del pedido #${pedido.id}`,
+          });
           await client.queryOne(
-            `INSERT INTO detalle_pedido (pedido_id, producto_id, cantidad, precio_unitario)
-             VALUES ($1, $2, $3, $4)`,
-            [pedido.id, r.productoId, r.cantidad, r.precioUnitario]
+            `INSERT INTO detalle_pedido
+               (pedido_id, producto_id, cantidad, precio_unitario, costo_unitario_snapshot)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [pedido.id, r.productoId, r.cantidad, r.precioUnitario, r.costoUnitarioSnapshot]
           );
         }
 
@@ -208,38 +335,65 @@ export const resolvers = {
     },
 
     actualizarEstadoPedido: async (_, { id, estado }, context) => {
-      requerirPanel(context);
-      const pedido = await queryOne('SELECT * FROM pedidos WHERE id = $1', [id]);
-      if (!pedido) return null;
-
-      const permitidos = TRANSICIONES[pedido.status] || [];
-      if (!permitidos.includes(estado)) {
-        throw new Error(
-          `No se puede pasar un pedido de "${pedido.status}" a "${estado}".`
-        );
-      }
-
-      if (estado === 'CANCELLED') {
-        await devolverStock(id);
-
-        // Si el pedido aun no se habia pagado, el cobro tampoco tiene sentido:
-        // pasa a CANCELADO (el enum EstadoPago ya lo contempla). Un pedido ya
-        // pagado conserva su APROBADO (el reembolso real seria REEMBOLSADO y
-        // no lo gestiona este panel).
-        if (pedido.estado_pago === 'PENDIENTE') {
-          await marcarPagoCancelado(id);
-        }
-
-        return queryOne(
-          `UPDATE pedidos SET status = 'CANCELLED' WHERE id = $1 RETURNING *`,
+      const usuario = requerirPanel(context);
+      return withTransaction(async (client) => {
+        const pedido = await client.queryOne(
+          'SELECT * FROM pedidos WHERE id = $1 FOR UPDATE',
           [id]
         );
-      }
+        if (!pedido) return null;
 
-      return queryOne(
-        `UPDATE pedidos SET status = $2 WHERE id = $1 RETURNING *`,
-        [id, estado]
-      );
+        const permitidos = TRANSICIONES[pedido.status] || [];
+        if (!permitidos.includes(estado)) {
+          throw new Error(
+            `No se puede pasar un pedido de "${pedido.status}" a "${estado}".`
+          );
+        }
+
+        await client.queryOne(`UPDATE pedidos SET status = $2 WHERE id = $1`, [id, estado]);
+
+        // Bitacora: quien movio el pedido y cuando (el status actual sigue en
+        // pedidos; esto es la trazabilidad).
+        await client.queryOne(
+          `INSERT INTO historial_estados_pedido
+             (pedido_id, estado_anterior, estado_nuevo, usuario_id)
+           VALUES ($1, $2, $3, $4)`,
+          [id, pedido.status, estado, usuario.id]
+        );
+
+        if (estado === 'CANCELLED') {
+          // Devolucion de stock por el mismo camino que todo lo demas: el
+          // libro de inventario queda completo (ENTRADA con origen CANCELACION).
+          const renglones = await client.query(
+            'SELECT producto_id, cantidad FROM detalle_pedido WHERE pedido_id = $1',
+            [id]
+          );
+          for (const r of renglones) {
+            await registrarMovimiento(client, {
+              productoId: r.producto_id,
+              tipo: 'ENTRADA',
+              cantidad: r.cantidad,
+              origen: 'CANCELACION',
+              referenciaId: id,
+              usuarioId: usuario.id,
+              motivo: `Cancelacion del pedido #${id}`,
+            });
+          }
+
+          if (pedido.estado_pago === 'APROBADO') {
+            // Un pedido pagado y cancelado deja asiento de reversa (nunca se
+            // borra el asiento original).
+            await revertirAsientosVenta(client, pedido, usuario.id);
+          } else if (pedido.estado_pago === 'PENDIENTE') {
+            await client.queryOne(
+              `UPDATE pedidos SET estado_pago = 'CANCELADO' WHERE id = $1`,
+              [id]
+            );
+          }
+        }
+
+        return client.queryOne('SELECT * FROM pedidos WHERE id = $1', [id]);
+      });
     },
 
     // --- Autenticacion local ---------------------------------------------
@@ -491,19 +645,46 @@ export const resolvers = {
     usuario: (pedido) => queryOne('SELECT * FROM usuarios WHERE id = $1', [pedido.usuario_id]),
     detalles: (pedido) =>
       query('SELECT * FROM detalle_pedido WHERE pedido_id = $1 ORDER BY id', [pedido.id]),
-    fecha: (pedido) => pedido.fecha,
+    fecha: (pedido) => fechaHora(pedido.fecha),
     estadoPago: (pedido) => pedido.estado_pago,
     metodoPago: (pedido) => pedido.metodo_pago,
     referenciaPago: (pedido) => pedido.referencia_pago,
     idPago: (pedido) => pedido.id_pago,
     ticketUrl: (pedido) => pedido.ticket_url,
-    fechaPago: (pedido) => pedido.fecha_pago,
+    fechaPago: (pedido) => fechaHora(pedido.fecha_pago),
   },
 
   DetallePedido: {
     producto: (detalle) =>
       queryOne('SELECT * FROM productos WHERE id = $1', [detalle.producto_id]),
-    precioUnitario: (detalle) => detalle.precio_unitario,
+    precioUnitario: (detalle) => Number(detalle.precio_unitario),
     subtotal: (detalle) => detalle.cantidad * Number(detalle.precio_unitario),
+    costoUnitarioSnapshot: (detalle) =>
+      detalle.costo_unitario_snapshot == null
+        ? null
+        : Number(detalle.costo_unitario_snapshot),
   },
 };
+// --- Combinacion de modulos del ERP -------------------------------------
+// Cada modulo exporta mapas parciales ({ Query, Mutation, Tipo }). Se fusionan
+// por clave: los resolvers de campo de varios modulos se suman (p. ej. Pedido
+// recibe campos de finanzas y de logistica).
+const modulosErp = [
+  resolversInventario,
+  resolversFinanzas,
+  resolversLogistica,
+  resolversCrm,
+  resolversReportes,
+];
+
+function combinarResolvers(base, extras) {
+  const salida = { ...base };
+  for (const extra of extras) {
+    for (const [tipo, mapa] of Object.entries(extra)) {
+      salida[tipo] = { ...(salida[tipo] || {}), ...mapa };
+    }
+  }
+  return salida;
+}
+
+export const resolvers = combinarResolvers(resolversBase, modulosErp);

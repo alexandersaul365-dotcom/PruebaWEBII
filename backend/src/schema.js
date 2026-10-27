@@ -36,6 +36,80 @@ export const typeDefs = `#graphql
     CANCELADO
   }
 
+  """Estado de una orden de compra a proveedor."""
+  enum EstadoOC {
+    BORRADOR
+    RECIBIDA
+    CANCELADA
+  }
+
+  """Condiciones de pago acordadas con un proveedor."""
+  enum CondicionesPago {
+    CONTADO
+    CREDITO_30
+    CREDITO_60
+  }
+
+  """Tipo de movimiento en el libro de inventario."""
+  enum TipoMovimientoInventario {
+    ENTRADA
+    SALIDA
+    AJUSTE
+  }
+
+  """Que hecho origino un movimiento de inventario."""
+  enum OrigenMovimientoInventario {
+    OC
+    PEDIDO
+    AJUSTE_MANUAL
+    CANCELACION
+  }
+
+  """Naturaleza de un asiento contable."""
+  enum TipoMovimientoContable {
+    INGRESO
+    EGRESO
+  }
+
+  """Cuenta contable afectada por un asiento."""
+  enum CuentaContable {
+    CAJA
+    BANCO
+    INVENTARIO
+    COSTO_VENTAS
+    IVA_TRASLADADO
+    IVA_ACREDITABLE
+  }
+
+  """Hecho economico que origino un asiento contable."""
+  enum OrigenContable {
+    PEDIDO
+    OC
+    CANCELACION
+  }
+
+  """Estado de un ticket de soporte."""
+  enum EstadoTicket {
+    ABIERTO
+    EN_PROCESO
+    CERRADO
+  }
+
+  """Prioridad de un ticket de soporte."""
+  enum PrioridadTicket {
+    BAJA
+    MEDIA
+    ALTA
+  }
+
+  """Paqueteria usada para un envio. SIMULADA genera guias de demostracion."""
+  enum Paqueteria {
+    DHL
+    ESTAFETA
+    FEDEX
+    SIMULADA
+  }
+
   """Categoria del catalogo (tabla categorias)."""
   type Categoria {
     id: ID!
@@ -53,6 +127,18 @@ export const typeDefs = `#graphql
     stock: Int!
     "Categoria a la que pertenece este producto (nula si no tiene)."
     categoria: Categoria
+    "Costo de adquisicion mas reciente (lo actualiza recibirOrdenCompra)."
+    costoAdquisicion: Float!
+    "Margen bruto en porcentaje: (precio - costo) / precio * 100."
+    margen: Float!
+    "Codigo interno del producto (opcional, unico)."
+    sku: String
+    "Umbral propio de alerta de stock bajo."
+    stockMinimo: Int!
+    "true cuando stock <= stockMinimo."
+    bajoMinimo: Boolean!
+    "Baja logica: los productos inactivos no se muestran en el catalogo."
+    activo: Boolean!
   }
 
   """Usuario que compra en la plataforma (tabla usuarios)."""
@@ -75,13 +161,30 @@ export const typeDefs = `#graphql
     cantidad: Int!
     precioUnitario: Float!
     subtotal: Float!
+    "Costo unitario congelado al momento de la venta (para el margen)."
+    costoUnitarioSnapshot: Float
   }
 
   """Pedido realizado por un usuario (tabla pedidos)."""
   type Pedido {
     id: ID!
     fecha: String!
+    "Total cobrado = subtotal + impuestos + costoEnvio."
     total: Float!
+    "Suma de los renglones, sin impuestos ni envio."
+    subtotal: Float!
+    "IVA u otros impuestos trasladados."
+    impuestos: Float!
+    "Tasa aplicada (0.16 por defecto; 0.08 en frontera; 0 exento)."
+    tasaImpuesto: Float!
+    "Costo de envio cobrado en este pedido."
+    costoEnvio: Float!
+    "Direccion de entrega capturada al comprar."
+    direccionEnvio: String
+    ciudad: String
+    estadoGeo: String
+    codigoPostal: String
+    telefonoContacto: String
     status: EstadoPedido!
     "Pasarela con la que el cliente dijo que iba a pagar (si ya eligio)."
     metodoPago: MetodoPago
@@ -99,6 +202,12 @@ export const typeDefs = `#graphql
     usuario: Usuario!
     "Renglones del pedido, cada uno con su producto y cantidad (relacion N-N via detalle_pedido)."
     detalles: [DetallePedido!]!
+    "Guia de envio asociada, si ya se genero."
+    envio: Envio
+    "Factura fiscal emitida para este pedido, si existe."
+    factura: Factura
+    "Bitacora de cambios de estado (quien y cuando)."
+    historial: [HistorialEstado!]!
   }
 
   """Respuesta de una pasarela: a donde hay que redirigir al cliente."""
@@ -160,6 +269,14 @@ export const typeDefs = `#graphql
     stock: Int!
     "Categoria del producto (nula si el producto no pertenece a ninguna)."
     categoriaId: ID
+    "Costo de adquisicion (base para el margen)."
+    costoAdquisicion: Float
+    "Codigo interno unico (opcional)."
+    sku: String
+    "Umbral propio de alerta de stock bajo (default 5)."
+    stockMinimo: Int
+    "false = baja logica (deja de mostrarse en el catalogo)."
+    activo: Boolean
   }
 
   """Un renglon (producto + cantidad) al armar un pedido nuevo."""
@@ -196,6 +313,15 @@ export const typeDefs = `#graphql
   input PedidoInput {
     metodoPago: MetodoPago
     detalles: [DetallePedidoInput!]!
+    "Tasa de impuesto a aplicar (0.16 por defecto)."
+    tasaImpuesto: Float
+    "Costo de envio a cobrar (0 por defecto)."
+    costoEnvio: Float
+    direccionEnvio: String
+    ciudad: String
+    estadoGeo: String
+    codigoPostal: String
+    telefonoContacto: String
   }
 
   """Datos para crear una cuenta local (login con correo/contraseña)."""
@@ -205,6 +331,287 @@ export const typeDefs = `#graphql
     password: String!
   }
 
+  # ---------------------------------------------------------------
+  # ERP — Inventario, compras y proveedores
+  # ---------------------------------------------------------------
+
+  """Proveedor/distribuidor mayorista (tabla proveedores)."""
+  type Proveedor {
+    id: ID!
+    nombre: String!
+    contacto: String
+    email: String
+    telefono: String
+    marcasDistribuidas: String
+    condicionesPago: CondicionesPago!
+    diasCredito: Int!
+    notas: String
+    activo: Boolean!
+    "Ordenes de compra hechas a este proveedor (mas recientes primero)."
+    ordenesCompra: [OrdenCompra!]!
+    "Saldo de OC recibidas a credito (no hay registro de pagos a proveedor)."
+    saldoPendiente: Float!
+  }
+
+  """Un renglon de una orden de compra (tabla detalle_oc)."""
+  type DetalleOC {
+    id: ID!
+    producto: Producto!
+    cantidad: Int!
+    costoUnitario: Float!
+    subtotal: Float!
+  }
+
+  """Orden de compra a un proveedor (tabla ordenes_compra)."""
+  type OrdenCompra {
+    id: ID!
+    proveedor: Proveedor!
+    fecha: String!
+    estado: EstadoOC!
+    subtotal: Float!
+    impuestos: Float!
+    total: Float!
+    recibidaEn: String
+    usuario: Usuario
+    detalles: [DetalleOC!]!
+  }
+
+  """Renglon del libro de inventario (tabla movimientos_inventario)."""
+  type MovimientoInventario {
+    id: ID!
+    producto: Producto!
+    tipo: TipoMovimientoInventario!
+    "Delta con signo aplicado al stock (ENTRADA +, SALIDA -)."
+    cantidad: Int!
+    origen: OrigenMovimientoInventario!
+    referenciaId: ID
+    motivo: String
+    usuario: Usuario
+    fecha: String!
+  }
+
+  """Datos para crear/actualizar un proveedor."""
+  input ProveedorInput {
+    nombre: String!
+    contacto: String
+    email: String
+    telefono: String
+    marcasDistribuidas: String
+    condicionesPago: CondicionesPago
+    diasCredito: Int
+    notas: String
+    activo: Boolean
+  }
+
+  """Un renglon al crear una orden de compra."""
+  input RenglonOCInput {
+    productoId: ID!
+    cantidad: Int!
+    costoUnitario: Float!
+  }
+
+  # ---------------------------------------------------------------
+  # ERP — Contabilidad y facturacion
+  # ---------------------------------------------------------------
+
+  """Asiento del libro contable (tabla movimientos_contables)."""
+  type MovimientoContable {
+    id: ID!
+    fecha: String!
+    tipo: TipoMovimientoContable!
+    cuenta: CuentaContable!
+    monto: Float!
+    concepto: String!
+    origen: OrigenContable!
+    referenciaId: ID
+    usuario: Usuario
+  }
+
+  """Factura CFDI 4.0 generada (sin timbrar: requiere PAC)."""
+  type Factura {
+    id: ID!
+    pedido: Pedido!
+    serie: String!
+    folio: Int!
+    rfc: String!
+    razonSocial: String!
+    regimenFiscal: String!
+    usoCfdi: String!
+    codigoPostalFiscal: String!
+    subtotal: Float!
+    impuestos: Float!
+    total: Float!
+    estado: String!
+    "UUID del timbre fiscal; vacio mientras no se timbre con un PAC."
+    uuidFiscal: String
+    emitidaEn: String!
+    "XML CFDI 4.0 completo (estructura valida, sin timbre)."
+    xml: String!
+  }
+
+  """Datos fiscales del receptor para emitir la factura."""
+  input DatosFiscalesInput {
+    rfc: String!
+    razonSocial: String!
+    "Clave del regimen fiscal del SAT (ej. 601, 612, 626)."
+    regimenFiscal: String!
+    "Uso del CFDI (ej. G01, G03, I08)."
+    usoCfdi: String!
+    codigoPostalFiscal: String!
+    "Serie de la factura (A por defecto)."
+    serie: String
+  }
+
+  # ---------------------------------------------------------------
+  # ERP — Logistica y envios
+  # ---------------------------------------------------------------
+
+  """Guia de envio de un pedido (tabla envios)."""
+  type Envio {
+    id: ID!
+    pedido: Pedido!
+    paqueteria: Paqueteria!
+    numeroGuia: String!
+    urlRastreo: String
+    costoEnvio: Float!
+    fechaCreacion: String!
+    fechaEntregaEstimada: String
+    entregadoEn: String
+    "true si la guia es de demostracion (sin contrato con la paqueteria)."
+    simulada: Boolean!
+  }
+
+  """Un cambio de estado de un pedido, con quien y cuando (tabla historial_estados_pedido)."""
+  type HistorialEstado {
+    id: ID!
+    estadoAnterior: String
+    estadoNuevo: String!
+    comentario: String
+    usuario: Usuario
+    fecha: String!
+  }
+
+  """Medidas del paquete para cotizar la guia."""
+  input PaqueteInput {
+    pesoKg: Float
+    altoCm: Float
+    anchoCm: Float
+    largoCm: Float
+  }
+
+  # ---------------------------------------------------------------
+  # ERP — CRM y tickets de soporte
+  # ---------------------------------------------------------------
+
+  """Resumen de un cliente para el listado del CRM."""
+  type ClienteResumen {
+    id: ID!
+    nombre: String!
+    email: String!
+    avatarUrl: String
+    totalPedidos: Int!
+    totalGastado: Float!
+    ticketPromedio: Float!
+    primeraCompra: String
+    ultimaCompra: String
+    ticketsAbiertos: Int!
+  }
+
+  """Conteo de unidades compradas de un producto (sin resolver N+1)."""
+  type ConteoProducto {
+    productoId: ID!
+    nombre: String!
+    cantidad: Int!
+  }
+
+  """Perfil de cliente construido por agregacion sobre pedidos existentes."""
+  type PerfilCliente {
+    usuario: Usuario!
+    totalPedidos: Int!
+    totalGastado: Float!
+    ticketPromedio: Float!
+    primeraCompra: String
+    ultimaCompra: String
+    categoriaFavorita: String
+    productosMasComprados: [ConteoProducto!]!
+    ticketsAbiertos: Int!
+  }
+
+  """Ticket de soporte de un cliente (tabla tickets_soporte)."""
+  type TicketSoporte {
+    id: ID!
+    usuario: Usuario!
+    pedido: Pedido
+    asunto: String!
+    descripcion: String!
+    estado: EstadoTicket!
+    prioridad: PrioridadTicket!
+    creadoEn: String!
+    cerradoEn: String
+  }
+
+  """Datos para abrir un ticket de soporte."""
+  input TicketSoporteInput {
+    "Solo el panel puede abrir un ticket a nombre de otro usuario."
+    usuarioId: ID
+    pedidoId: ID
+    asunto: String!
+    descripcion: String!
+    prioridad: PrioridadTicket
+  }
+
+  # ---------------------------------------------------------------
+  # ERP — Reportes financieros
+  # ---------------------------------------------------------------
+
+  """Un mes de la serie del estado de resultados."""
+  type SerieMensual {
+    mes: String!
+    ingresos: Float!
+    iva: Float!
+    costoVentas: Float!
+    utilidad: Float!
+  }
+
+  """Estado de resultados del periodo (calculado sobre subtotal, no sobre total:
+  el IVA no es ingreso)."""
+  type EstadoResultados {
+    ingresos: Float!
+    costoVentas: Float!
+    utilidadBruta: Float!
+    margenPorcentaje: Float!
+    ivaTrasladado: Float!
+    "Ingresos de pedidos que SI tienen costo registrado (base del margen)."
+    ingresosConCosto: Float!
+    "Pedidos historicos sin costo: suman ingresos pero no margen."
+    pedidosHistoricos: Int!
+    "Renglones historicos sin costo snapshot (se excluyen del margen)."
+    renglonesSinCosto: Int!
+    "Serie mensual para la grafica."
+    serieMensual: [SerieMensual!]!
+  }
+
+  """Rotacion de un producto en el periodo (aproximada con el stock actual)."""
+  type RotacionProducto {
+    producto: Producto!
+    unidadesVendidas: Int!
+    ingresos: Float!
+    costo: Float!
+    utilidad: Float!
+    vecesRotado: Float!
+    diasInventario: Float!
+    bajaRotacion: Boolean!
+  }
+
+  """KPIs gerenciales de portada, en una sola consulta."""
+  type ResumenDashboard {
+    utilidadMes: Float!
+    margenMes: Float!
+    productosBajoMinimo: Int!
+    pedidosPorAtender: Int!
+    ordenesCompraPendientes: Int!
+  }
+
   """Operaciones de lectura (no cambian el estado del sistema)."""
   type Query {
     "Lista las categorias; cada una resuelve sus propios productos (consulta anidada)."
@@ -212,10 +619,50 @@ export const typeDefs = `#graphql
     "Consulta una categoria por su identificador."
     categoria(id: ID!): Categoria
 
-    "Catalogo de productos, paginado."
-    productos(limite: Int, desde: Int): [Producto!]!
+    "Catalogo de productos, paginado. Por defecto solo activos."
+    productos(limite: Int, desde: Int, incluirInactivos: Boolean): [Producto!]!
     "Consulta un producto por su identificador."
     producto(id: ID!): Producto
+
+    "Productos con stock en o por debajo de su propio umbral. Requiere ADMIN u OPERADOR."
+    productosBajoMinimo: [Producto!]!
+
+    "Directorio de proveedores. Requiere ADMIN u OPERADOR."
+    proveedores(activo: Boolean): [Proveedor!]!
+    "Un proveedor con su historial de compras. Requiere ADMIN u OPERADOR."
+    proveedor(id: ID!): Proveedor
+
+    "Ordenes de compra, opcionalmente filtradas por estado. Requiere ADMIN u OPERADOR."
+    ordenesCompra(estado: EstadoOC): [OrdenCompra!]!
+    "Detalle de una orden de compra. Requiere ADMIN u OPERADOR."
+    ordenCompra(id: ID!): OrdenCompra
+
+    "Libro de inventario (se puede filtrar por producto y tipo). Requiere ADMIN u OPERADOR."
+    movimientosInventario(productoId: ID, tipo: TipoMovimientoInventario, limite: Int): [MovimientoInventario!]!
+
+    "Libro contable del periodo. Requiere ADMIN (informacion financiera)."
+    movimientosContables(desde: String, hasta: String, origen: OrigenContable): [MovimientoContable!]!
+    "Facturas emitidas. Requiere ADMIN."
+    facturas: [Factura!]!
+
+    "Envios generados, opcionalmente por paqueteria. Requiere ADMIN u OPERADOR."
+    envios(paqueteria: Paqueteria): [Envio!]!
+    "Bitacora de estados de un pedido. Requiere ADMIN u OPERADOR."
+    historialPedido(pedidoId: ID!): [HistorialEstado!]!
+
+    "Listado de clientes con sus totales de compra. Requiere ADMIN u OPERADOR."
+    clientes(busqueda: String): [ClienteResumen!]!
+    "Perfil agregado de un cliente. Requiere ADMIN u OPERADOR."
+    perfilCliente(usuarioId: ID!): PerfilCliente
+    "Tickets de soporte (de un usuario o todos). Requiere ADMIN u OPERADOR."
+    ticketsSoporte(usuarioId: ID): [TicketSoporte!]!
+
+    "Estado de resultados del periodo. Requiere ADMIN."
+    estadoResultados(desde: String, hasta: String): EstadoResultados!
+    "Rotacion de inventario por producto. Requiere ADMIN."
+    rotacionInventario(desde: String, hasta: String): [RotacionProducto!]!
+    "KPIs gerenciales de portada. Requiere ADMIN u OPERADOR."
+    resumenDashboard: ResumenDashboard!
 
     "Historial de pedidos. Un CLIENTE solo ve los suyos; el equipo del panel ve todos."
     pedidos(estado: EstadoPedido): [Pedido!]!
@@ -272,5 +719,40 @@ export const typeDefs = `#graphql
 
     "Consulta el estado real del cobro contra la pasarela y actualiza la orden si procede."
     verificarPago(pedidoId: ID!): Pedido!
+
+    # --- ERP: inventario y compras -------------------------------------
+    "Crea/edita un proveedor. Requiere ADMIN."
+    crearProveedor(datos: ProveedorInput!): Proveedor!
+    actualizarProveedor(id: ID!, datos: ProveedorInput!): Proveedor
+
+    "Crea una orden de compra en BORRADOR. Requiere ADMIN u OPERADOR."
+    crearOrdenCompra(proveedorId: ID!, renglones: [RenglonOCInput!]!): OrdenCompra!
+    "Recibe una OC: entra stock, se actualiza el costo y se generan asientos. Requiere ADMIN u OPERADOR."
+    recibirOrdenCompra(id: ID!): OrdenCompra!
+    "Cancela una OC que aun esta en BORRADOR. Requiere ADMIN u OPERADOR."
+    cancelarOrdenCompra(id: ID!): OrdenCompra!
+
+    "Ajuste manual de stock (motivo obligatorio). Requiere ADMIN u OPERADOR."
+    ajustarStock(productoId: ID!, cantidad: Int!, motivo: String!): Producto!
+    "Cambia el umbral de alerta de stock de un producto. Requiere ADMIN u OPERADOR."
+    actualizarUmbralStock(productoId: ID!, stockMinimo: Int!): Producto!
+
+    # --- ERP: facturacion ----------------------------------------------
+    "Emite una factura CFDI 4.0 (sin timbrar; requiere PAC). Requiere ADMIN."
+    emitirFactura(pedidoId: ID!, datos: DatosFiscalesInput!): Factura!
+    "Cancela una factura emitida (no genera cancelacion ante el SAT sin PAC). Requiere ADMIN."
+    cancelarFactura(id: ID!): Factura
+
+    # --- ERP: logistica ------------------------------------------------
+    "Genera la guia de envio y marca el pedido como enviado. Requiere ADMIN u OPERADOR."
+    crearGuia(pedidoId: ID!, paqueteria: Paqueteria, paquete: PaqueteInput): Envio!
+    "Marca un pedido enviado como entregado. Requiere ADMIN u OPERADOR."
+    marcarEntregado(pedidoId: ID!): Pedido
+
+    # --- ERP: CRM ------------------------------------------------------
+    "Abre un ticket de soporte (el cliente para si mismo; el panel para cualquiera)."
+    crearTicketSoporte(datos: TicketSoporteInput!): TicketSoporte!
+    "Cambia el estado de un ticket. Requiere ADMIN u OPERADOR."
+    cambiarEstadoTicket(id: ID!, estado: EstadoTicket!): TicketSoporte
   }
 `;
