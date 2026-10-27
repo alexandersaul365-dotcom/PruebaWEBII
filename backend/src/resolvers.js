@@ -6,6 +6,7 @@ import { crearHash, verificarPassword } from './auth/password.js';
 import { crearPago as crearPagoMercadoPago, crearPagoOxxo, consultarPagoPorReferencia, mensajeEstadoMercadoPago } from './pagos/mercadopago.js';
 import { crearOrden as crearOrdenPayPal, capturarOrden, consultarOrden } from './pagos/paypal.js';
 import { marcarPagoAprobado, marcarPagoFallido } from './pagos/estado-pedido.js';
+import { publicarStock, escucharStock } from './eventos.js';
 import { registrarMovimiento } from './inventario/movimientos.js';
 import { revertirAsientosVenta } from './contabilidad/asientos.js';
 import { resolversInventario } from './inventario/resolvers.js';
@@ -187,7 +188,7 @@ const resolversBase = {
       const existente = await queryOne('SELECT * FROM productos WHERE id = $1', [id]);
       if (!existente) return null;
       try {
-        return await queryOne(
+        const actualizado = await queryOne(
           `UPDATE productos
              SET nombre = $1, precio = $2, imagen = $3, stock = $4,
                  categoria_id = $5, costo_adquisicion = $6, sku = $7,
@@ -207,6 +208,9 @@ const resolversBase = {
             id,
           ]
         );
+        // Edicion directa desde el admin: avisamos a quien este suscrito.
+        publicarStock(id);
+        return actualizado;
       } catch (error) {
         throw errorSkuDuplicado(error);
       }
@@ -627,6 +631,16 @@ const resolversBase = {
   Categoria: {
     productos: (categoria) =>
       query('SELECT * FROM productos WHERE categoria_id = $1 ORDER BY id', [categoria.id]),
+  },
+
+  Subscription: {
+    // Se dispara cada vez que cambia el stock de un producto (edicion en el
+    // admin, compra, cancelacion, orden de compra o ajuste). Es publica: el
+    // stock ya lo ve cualquiera en el catalogo.
+    stockActualizado: {
+      subscribe: (_, { productoId }) => escucharStock(productoId ?? null),
+      resolve: (id) => queryOne('SELECT * FROM productos WHERE id = $1', [id]),
+    },
   },
 
   Producto: {
